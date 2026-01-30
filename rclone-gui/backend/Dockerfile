@@ -1,9 +1,7 @@
 FROM node:18-alpine
 
 # Install rclone
-RUN apk add --no-cache curl && \
-    curl https://rclone.org/install.sh | sh && \
-    apk del curl
+RUN apk add --no-cache rclone
 
 WORKDIR /app
 
@@ -11,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm install --production
 
 # Copy application code
 COPY . .
