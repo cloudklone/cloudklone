@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: rclone-gui-db
+    environment:
+      POSTGRES_DB: rclone_gui
+      POSTGRES_USER: rclone_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rclone-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rclone_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rclone-gui-backend
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://rclone_admin:${DB_PASSWORD:-changeme123}@postgres:5432/rclone_gui
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this}
+      PORT: 3001
+    volumes:
+      - rclone_config:/root/.config/rclone
+      - transfer_cache:/app/cache
+    networks:
+      - rclone-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rclone-gui-frontend
+    networks:
+      - rclone-network
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: rclone-gui-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - rclone-network
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:
+  rclone_config:
+  transfer_cache:
+
+networks:
+  rclone-network:
+    driver: bridge
