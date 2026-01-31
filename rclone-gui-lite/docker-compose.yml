@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rclone_gui
+      POSTGRES_USER: rclone_admin
+      POSTGRES_PASSWORD: changeme123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rclone-network
+
+  app:
+    image: node:18-alpine
+    working_dir: /app
+    command: >
+      sh -c "
+      apk add --no-cache rclone &&
+      npm install --omit=dev --quiet &&
+      node index.js
+      "
+    environment:
+      DATABASE_URL: postgresql://rclone_admin:changeme123@postgres:5432/rclone_gui
+      JWT_SECRET: change-this-secret-key-please
+      PORT: 3001
+    volumes:
+      - ./backend:/app
+      - ./index.html:/app/public/index.html
+      - rclone_config:/root/.config/rclone
+    ports:
+      - "80:3001"
+    networks:
+      - rclone-network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  rclone_config:
+
+networks:
+  rclone-network:
