@@ -512,8 +512,10 @@
             <nav class="sidebar-nav">
                 <div class="nav-item active" onclick="showTab('transfers')">Transfers</div>
                 <div class="nav-item" onclick="showTab('history')">History</div>
+                <div class="nav-item" onclick="showTab('scheduled')">Scheduled</div>
                 <div class="nav-item" onclick="showTab('remotes')">Remotes</div>
                 <div class="nav-item" onclick="showTab('settings')">Settings</div>
+                <div id="admin-nav" class="nav-item hidden" onclick="showTab('admin')">Admin</div>
             </nav>
             <div class="sidebar-footer">
                 <button class="btn btn-secondary btn-small" onclick="logout()" style="width: 100%;">Logout</button>
@@ -588,7 +590,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Path</label>
-                                    <input type="text" id="source-path" value="/" placeholder="/">
+                                    <input type="text" id="source-path" value="/" placeholder="my-bucket/folder/files">
                                 </div>
                             </div>
                             <div>
@@ -599,7 +601,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Path</label>
-                                    <input type="text" id="dest-path" value="/" placeholder="/">
+                                    <input type="text" id="dest-path" value="/" placeholder="backup-bucket/daily">
                                 </div>
                             </div>
                         </div>
@@ -650,6 +652,49 @@
                     </div>
 
                     <div id="history-list"></div>
+                </div>
+            </div>
+
+            <!-- Scheduled Tab -->
+            <div id="tab-scheduled" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>Scheduled Jobs</h2>
+                    <p>Manage recurring and one-time scheduled transfers</p>
+                </div>
+                <div class="content-body">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-scheduled-total">0</div>
+                            <div class="stat-label">Total Scheduled</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-scheduled-active" style="color: var(--success);">0</div>
+                            <div class="stat-label">Active</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-scheduled-disabled" style="color: var(--text-tertiary);">0</div>
+                            <div class="stat-label">Disabled</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-scheduled-recurring" style="color: var(--accent-orange);">0</div>
+                            <div class="stat-label">Recurring</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Filter</div>
+                            <select id="scheduled-filter" onchange="loadScheduled()" style="width: 200px;">
+                                <option value="">All Jobs</option>
+                                <option value="recurring">Recurring Only</option>
+                                <option value="once">One-Time Only</option>
+                                <option value="active">Active Only</option>
+                                <option value="disabled">Disabled Only</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="scheduled-list"></div>
                 </div>
             </div>
 
@@ -715,10 +760,18 @@
                                 <input type="number" id="smtp-port" placeholder="587">
                             </div>
                         </div>
+                        <div class="form-group">
+                            <label>From Email (Sender Address)</label>
+                            <input type="email" id="from-email" placeholder="cloudklone@yourdomain.com">
+                            <small style="display: block; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 12px;">
+                                Must be verified in your SMTP provider (e.g., Brevo, SendGrid)
+                            </small>
+                        </div>
+                        <h4 style="margin: 2rem 0 1rem; font-size: 14px; font-weight: 600;">SMTP Authentication</h4>
                         <div class="grid-2">
                             <div class="form-group">
-                                <label>Username</label>
-                                <input type="text" id="smtp-user" placeholder="your-email@example.com">
+                                <label>Username (Login)</label>
+                                <input type="text" id="smtp-user" placeholder="your-login@example.com">
                             </div>
                             <div class="form-group">
                                 <label>Password</label>
@@ -747,6 +800,150 @@
                         <div style="display: flex; gap: 1rem;">
                             <button class="btn" onclick="saveSettings()">Save Settings</button>
                             <button class="btn btn-secondary" onclick="testEmail()">Test Email</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Tab -->
+            <div id="tab-admin" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>Admin Panel</h2>
+                    <p>Manage users, groups, and system settings</p>
+                </div>
+                <div class="content-body">
+                    <!-- User Management -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Users</div>
+                            <button class="btn btn-small" onclick="showCreateUser()">Create User</button>
+                        </div>
+                        
+                        <!-- Create User Form (Hidden by default) -->
+                        <div id="create-user-form" class="hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                            <h4 style="margin-bottom: 1rem; font-size: 14px; font-weight: 600;">New User</h4>
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label>Username</label>
+                                    <input type="text" id="new-username" placeholder="username">
+                                </div>
+                                <div class="form-group">
+                                    <label>Email</label>
+                                    <input type="email" id="new-email" placeholder="user@example.com">
+                                </div>
+                            </div>
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label>Password</label>
+                                    <input type="password" id="new-password" placeholder="password">
+                                </div>
+                                <div class="form-group">
+                                    <label>Group</label>
+                                    <select id="new-user-group">
+                                        <option value="">No group</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="new-is-admin" style="width: auto;">
+                                    Admin privileges
+                                </label>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-small" onclick="createUser()">Create</button>
+                                <button class="btn btn-secondary btn-small" onclick="hideCreateUser()">Cancel</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Edit User Form (Hidden by default) -->
+                        <div id="edit-user-form" class="hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                            <h4 style="margin-bottom: 1rem; font-size: 14px; font-weight: 600;">Edit User</h4>
+                            <input type="hidden" id="edit-user-id">
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label>Username</label>
+                                    <input type="text" id="edit-username" disabled style="opacity: 0.6; cursor: not-allowed;">
+                                    <small style="display: block; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 12px;">
+                                        Username cannot be changed
+                                    </small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Email</label>
+                                    <input type="email" id="edit-email" placeholder="user@example.com">
+                                </div>
+                            </div>
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label>Group</label>
+                                    <select id="edit-user-group">
+                                        <option value="">No group</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Role</label>
+                                    <select id="edit-user-role">
+                                        <option value="user">User</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>New Password (leave blank to keep current)</label>
+                                <input type="password" id="edit-password" placeholder="new password">
+                                <small style="display: block; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 12px;">
+                                    Only fill this if you want to change the user's password
+                                </small>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-small" onclick="updateUser()">Save Changes</button>
+                                <button class="btn btn-secondary btn-small" onclick="hideEditUser()">Cancel</button>
+                            </div>
+                        </div>
+                        
+                        <div id="users-list"></div>
+                    </div>
+
+                    <!-- Group Management -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Groups</div>
+                            <button class="btn btn-small" onclick="showCreateGroup()">Create Group</button>
+                        </div>
+                        
+                        <!-- Create Group Form -->
+                        <div id="create-group-form" class="hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                            <h4 style="margin-bottom: 1rem; font-size: 14px; font-weight: 600;">New Group</h4>
+                            <div class="form-group">
+                                <label>Group Name</label>
+                                <input type="text" id="new-group-name" placeholder="Engineering">
+                            </div>
+                            <div class="form-group">
+                                <label>Description</label>
+                                <input type="text" id="new-group-desc" placeholder="Engineering team members">
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-small" onclick="createGroup()">Create</button>
+                                <button class="btn btn-secondary btn-small" onclick="hideCreateGroup()">Cancel</button>
+                            </div>
+                        </div>
+                        
+                        <div id="groups-list"></div>
+                    </div>
+
+                    <!-- System Tools -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">System Tools</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                                <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 0.5rem;">Cancel Stuck Transfers</h4>
+                                <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 1rem;">
+                                    Find and cancel all transfers stuck in "running" state for 10+ minutes with no progress.
+                                </p>
+                                <button class="btn btn-danger btn-small" onclick="cancelAllStuck()">Cancel All Stuck Transfers</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -798,6 +995,16 @@
         function showApp() {
             document.getElementById('auth-section').classList.add('hidden');
             document.getElementById('app-section').classList.remove('hidden');
+            
+            // Decode JWT to check if admin
+            const tokenParts = token.split('.');
+            if (tokenParts.length === 3) {
+                const payload = JSON.parse(atob(tokenParts[1]));
+                if (payload.isAdmin) {
+                    document.getElementById('admin-nav').classList.remove('hidden');
+                }
+            }
+            
             loadProviders();
             loadRemotes();
             loadTransfers();
@@ -815,6 +1022,11 @@
             event.target.classList.add('active');
             
             if (tab === 'history') loadHistory();
+            if (tab === 'scheduled') loadScheduled();
+            if (tab === 'admin') {
+                loadUsers();
+                loadGroups();
+            }
         }
         
         function toggleSchedule() {
@@ -826,6 +1038,355 @@
             const type = document.getElementById('schedule-type').value;
             document.getElementById('schedule-once').classList.toggle('hidden', type !== 'once');
             document.getElementById('schedule-recurring').classList.toggle('hidden', type !== 'recurring');
+        }
+
+        // ==================== ADMIN FUNCTIONS ====================
+        
+        async function loadUsers() {
+            try {
+                const res = await fetch(`${API_BASE}/users`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                // Get groups for display
+                const groupsRes = await fetch(`${API_BASE}/groups`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const groupsData = await groupsRes.json();
+                const groupsMap = {};
+                groupsData.groups.forEach(g => groupsMap[g.id] = g.name);
+                
+                const list = document.getElementById('users-list');
+                if (data.users.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><p>No users found</p></div>';
+                    return;
+                }
+                
+                list.innerHTML = data.users.map(u => {
+                    const groupName = u.group_id ? groupsMap[u.group_id] : 'No group';
+                    return `
+                    <div class="remote-item">
+                        <div class="remote-info">
+                            <h4>${u.username} ${u.is_admin ? '<span style="color: var(--accent-orange); font-size: 11px; font-weight: 600;">[ADMIN]</span>' : ''}</h4>
+                            <p>${u.email} • Group: ${groupName} • Created ${new Date(u.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div class="remote-actions">
+                            <button class="btn btn-secondary btn-small" onclick='showEditUser(${JSON.stringify(u)})'>Edit</button>
+                            <button class="btn btn-danger btn-small" onclick="deleteUser(${u.id}, '${u.username}')">Delete</button>
+                        </div>
+                    </div>
+                `}).join('');
+            } catch (err) {
+                console.error('Failed to load users:', err);
+            }
+        }
+
+        async function loadGroups() {
+            try {
+                const res = await fetch(`${API_BASE}/groups`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                // Update group dropdown in create user form
+                const groupSelect = document.getElementById('new-user-group');
+                groupSelect.innerHTML = '<option value="">No group</option>';
+                data.groups.forEach(g => {
+                    groupSelect.innerHTML += `<option value="${g.id}">${g.name}</option>`;
+                });
+                
+                const list = document.getElementById('groups-list');
+                if (data.groups.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><p>No groups created yet</p></div>';
+                    return;
+                }
+                
+                list.innerHTML = data.groups.map(g => `
+                    <div class="remote-item">
+                        <div class="remote-info">
+                            <h4>${g.name}</h4>
+                            <p>${g.description || 'No description'}</p>
+                        </div>
+                        <div class="remote-actions">
+                            <button class="btn btn-danger btn-small" onclick="deleteGroup(${g.id}, '${g.name}')">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load groups:', err);
+            }
+        }
+
+        function showCreateUser() {
+            document.getElementById('create-user-form').classList.remove('hidden');
+        }
+
+        function hideCreateUser() {
+            document.getElementById('create-user-form').classList.add('hidden');
+            document.getElementById('new-username').value = '';
+            document.getElementById('new-email').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('new-user-group').value = '';
+            document.getElementById('new-is-admin').checked = false;
+        }
+
+        async function createUser() {
+            const username = document.getElementById('new-username').value;
+            const email = document.getElementById('new-email').value;
+            const password = document.getElementById('new-password').value;
+            const isAdmin = document.getElementById('new-is-admin').checked;
+            
+            if (!username || !email || !password) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ username, email, password, isAdmin })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    hideCreateUser();
+                    loadUsers();
+                    alert('✅ User created successfully!');
+                } else {
+                    alert('❌ ' + (data.error || 'Failed to create user'));
+                }
+            } catch (err) {
+                alert('❌ Failed to create user: ' + err.message);
+            }
+        }
+
+        async function deleteUser(id, username) {
+            if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+            
+            try {
+                await fetch(`${API_BASE}/users/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                loadUsers();
+                alert('✅ User deleted');
+            } catch (err) {
+                alert('❌ Failed to delete user');
+            }
+        }
+
+        async function showEditUser(user) {
+            // Hide create form if open
+            document.getElementById('create-user-form').classList.add('hidden');
+            
+            // Load groups into dropdown
+            const groupsRes = await fetch(`${API_BASE}/groups`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const groupsData = await groupsRes.json();
+            
+            const groupSelect = document.getElementById('edit-user-group');
+            groupSelect.innerHTML = '<option value="">No group</option>';
+            groupsData.groups.forEach(g => {
+                const selected = g.id === user.group_id ? 'selected' : '';
+                groupSelect.innerHTML += `<option value="${g.id}" ${selected}>${g.name}</option>`;
+            });
+            
+            // Populate form
+            document.getElementById('edit-user-id').value = user.id;
+            document.getElementById('edit-username').value = user.username;
+            document.getElementById('edit-email').value = user.email;
+            document.getElementById('edit-user-group').value = user.group_id || '';
+            document.getElementById('edit-user-role').value = user.is_admin ? 'admin' : 'user';
+            document.getElementById('edit-password').value = '';
+            
+            // Show form
+            document.getElementById('edit-user-form').classList.remove('hidden');
+        }
+
+        function hideEditUser() {
+            document.getElementById('edit-user-form').classList.add('hidden');
+        }
+
+        async function updateUser() {
+            const userId = document.getElementById('edit-user-id').value;
+            const email = document.getElementById('edit-email').value;
+            const groupId = document.getElementById('edit-user-group').value || null;
+            const role = document.getElementById('edit-user-role').value;
+            const password = document.getElementById('edit-password').value;
+            
+            if (!email) {
+                alert('Email is required');
+                return;
+            }
+            
+            try {
+                const updates = {
+                    email,
+                    groupId,
+                    isAdmin: role === 'admin'
+                };
+                
+                // Only include password if provided
+                if (password) {
+                    updates.password = password;
+                }
+                
+                const res = await fetch(`${API_BASE}/users/${userId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(updates)
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    hideEditUser();
+                    loadUsers();
+                    alert('✅ User updated successfully!');
+                } else {
+                    alert('❌ ' + (data.error || 'Failed to update user'));
+                }
+            } catch (err) {
+                alert('❌ Failed to update user: ' + err.message);
+            }
+        }
+
+        function showCreateGroup() {
+            document.getElementById('create-group-form').classList.remove('hidden');
+        }
+
+        function hideCreateGroup() {
+            document.getElementById('create-group-form').classList.add('hidden');
+            document.getElementById('new-group-name').value = '';
+            document.getElementById('new-group-desc').value = '';
+        }
+
+        async function createGroup() {
+            const name = document.getElementById('new-group-name').value;
+            const description = document.getElementById('new-group-desc').value;
+            
+            if (!name) {
+                alert('Please enter a group name');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/groups`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ name, description })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    hideCreateGroup();
+                    loadGroups();
+                    alert('✅ Group created successfully!');
+                } else {
+                    alert('❌ ' + (data.error || 'Failed to create group'));
+                }
+            } catch (err) {
+                alert('❌ Failed to create group: ' + err.message);
+            }
+        }
+
+        async function deleteGroup(id, name) {
+            if (!confirm(`Delete group "${name}"? Users in this group will be unassigned.`)) return;
+            
+            try {
+                await fetch(`${API_BASE}/groups/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                loadGroups();
+                loadUsers(); // Refresh users to show group changes
+                alert('✅ Group deleted');
+            } catch (err) {
+                alert('❌ Failed to delete group');
+            }
+        }
+
+        async function cancelAllStuck() {
+            if (!confirm('Cancel all transfers stuck in "running" state for 10+ minutes?\n\nThis will kill their processes immediately.')) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/transfers/cancel-all-stuck`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    alert(`✅ Cancelled ${data.count} stuck transfer(s)`);
+                    loadTransfers();
+                    loadHistory();
+                } else {
+                    alert('❌ Failed to cancel stuck transfers');
+                }
+            } catch (err) {
+                alert('❌ Failed to cancel stuck transfers');
+            }
+        }
+
+        async function toggleScheduledJob(id, enabled) {
+            try {
+                const res = await fetch(`${API_BASE}/transfers/${id}/toggle`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ enabled })
+                });
+                
+                if (res.ok) {
+                    loadScheduled();
+                    alert(`✅ Job ${enabled ? 'enabled' : 'disabled'}`);
+                } else {
+                    alert('❌ Failed to toggle job');
+                }
+            } catch (err) {
+                alert('❌ Failed to toggle job');
+            }
+        }
+
+        async function editScheduledJob(id) {
+            alert('Edit functionality coming soon!\n\nFor now, you can:\n1. Delete this job\n2. Create a new one with updated settings');
+            // TODO: Add edit modal with schedule options
+        }
+
+        async function deleteScheduledJob(id) {
+            if (!confirm('Delete this scheduled job?\n\nThis cannot be undone.')) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/transfers/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.ok) {
+                    loadScheduled();
+                    alert('✅ Scheduled job deleted');
+                } else {
+                    alert('❌ Failed to delete job');
+                }
+            } catch (err) {
+                alert('❌ Failed to delete job');
+            }
         }
 
         async function loadProviders() {
@@ -1097,6 +1658,74 @@
             }
         }
 
+        async function loadScheduled() {
+            try {
+                const filter = document.getElementById('scheduled-filter')?.value || '';
+                const res = await fetch(`${API_BASE}/transfers/scheduled?filter=${filter}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                // Update stats
+                if (data.statistics) {
+                    document.getElementById('stat-scheduled-total').textContent = data.statistics.total;
+                    document.getElementById('stat-scheduled-active').textContent = data.statistics.active;
+                    document.getElementById('stat-scheduled-disabled').textContent = data.statistics.disabled;
+                    document.getElementById('stat-scheduled-recurring').textContent = data.statistics.recurring;
+                }
+                
+                const list = document.getElementById('scheduled-list');
+                if (data.transfers.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⏰</div><p>No scheduled jobs</p><small style="color: var(--text-tertiary);">Schedule transfers from the Transfers tab</small></div>';
+                    return;
+                }
+                
+                list.innerHTML = data.transfers.map(t => {
+                    const nextRun = t.next_run ? new Date(t.next_run).toLocaleString() : 'Not scheduled';
+                    const lastRun = t.last_run ? new Date(t.last_run).toLocaleString() : 'Never';
+                    const scheduleType = t.schedule_type === 'recurring' ? `Recurring (${t.schedule_interval})` : 'One-time';
+                    
+                    return `
+                    <div class="card" style="margin-bottom: 1rem;">
+                        <div class="transfer-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <div>
+                                <span class="transfer-status ${t.enabled ? 'queued' : 'failed'}" style="margin-right: 0.5rem;">${t.enabled ? 'ACTIVE' : 'DISABLED'}</span>
+                                <span style="color: var(--text-tertiary); font-size: 11px;">${scheduleType}</span>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-${t.enabled ? 'secondary' : 'primary'} btn-small" onclick="toggleScheduledJob(${t.id}, ${!t.enabled})">
+                                    ${t.enabled ? 'Disable' : 'Enable'}
+                                </button>
+                                <button class="btn btn-secondary btn-small" onclick="editScheduledJob(${t.id})">Edit</button>
+                                <button class="btn btn-danger btn-small" onclick="deleteScheduledJob(${t.id})">Delete</button>
+                            </div>
+                        </div>
+                        <div class="transfer-path">
+                            <span>${t.source_remote}:${t.source_path}</span>
+                            <span class="transfer-arrow">→</span>
+                            <span>${t.dest_remote}:${t.dest_path}</span>
+                        </div>
+                        <div style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; font-size: 13px;">
+                            <div>
+                                <div style="color: var(--text-tertiary);">Operation</div>
+                                <div style="margin-top: 0.25rem; font-weight: 500;">${t.operation}</div>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-tertiary);">Next Run</div>
+                                <div style="margin-top: 0.25rem; font-weight: 500; color: var(--accent-orange);">${nextRun}</div>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-tertiary);">Last Run</div>
+                                <div style="margin-top: 0.25rem; font-weight: 500;">${lastRun}</div>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('');
+            } catch (err) {
+                console.error('Failed to load scheduled jobs:', err);
+            }
+        }
+
         async function startTransfer() {
             const operation = document.getElementById('operation').value;
             const sourceRemote = document.getElementById('source-remote').value;
@@ -1209,6 +1838,7 @@
                     const s = data.settings;
                     document.getElementById('email-enabled').checked = s.email_enabled;
                     document.getElementById('email-address').value = s.email_address || '';
+                    document.getElementById('from-email').value = s.from_email || '';
                     document.getElementById('smtp-host').value = s.smtp_host || '';
                     document.getElementById('smtp-port').value = s.smtp_port || 587;
                     document.getElementById('smtp-user').value = s.smtp_user || '';
@@ -1227,6 +1857,7 @@
                 const settings = {
                     email_enabled: document.getElementById('email-enabled').checked,
                     email_address: document.getElementById('email-address').value,
+                    from_email: document.getElementById('from-email').value,
                     smtp_host: document.getElementById('smtp-host').value,
                     smtp_port: parseInt(document.getElementById('smtp-port').value),
                     smtp_user: document.getElementById('smtp-user').value,

@@ -13,10 +13,57 @@ const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 const crypto = require('crypto');
 
-// Encryption for sensitive data at rest
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+// Auto-generate and persist encryption keys if not set
+const ENV_FILE = '/app/.env';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || loadOrGenerateKey('ENCRYPTION_KEY');
+const JWT_SECRET = process.env.JWT_SECRET || loadOrGenerateKey('JWT_SECRET');
 const IV_LENGTH = 16;
 
+function loadOrGenerateKey(keyName) {
+  try {
+    // Try to read from persistent .env file
+    const envContent = require('fs').readFileSync(ENV_FILE, 'utf8');
+    const match = envContent.match(new RegExp(`${keyName}=(.+)`));
+    if (match) {
+      console.log(`✓ Loaded ${keyName} from ${ENV_FILE}`);
+      return match[1].trim();
+    }
+  } catch (err) {
+    // File doesn't exist or can't be read
+  }
+  
+  // Generate new key
+  const newKey = crypto.randomBytes(32).toString('hex');
+  console.log(`⚠ Generated new ${keyName} - saving to ${ENV_FILE}`);
+  
+  // Persist to file
+  try {
+    let envContent = '';
+    try {
+      envContent = require('fs').readFileSync(ENV_FILE, 'utf8');
+    } catch (e) {
+      // File doesn't exist yet, create header
+      envContent = `# CloudKlone Configuration - Generated ${new Date().toISOString()}\n# DO NOT DELETE OR MODIFY THESE KEYS!\n\n`;
+    }
+    
+    // Add or update the key
+    if (envContent.includes(`${keyName}=`)) {
+      envContent = envContent.replace(new RegExp(`${keyName}=.+`), `${keyName}=${newKey}`);
+    } else {
+      envContent += `${keyName}=${newKey}\n`;
+    }
+    
+    require('fs').writeFileSync(ENV_FILE, envContent);
+    console.log(`✓ Saved ${keyName} to ${ENV_FILE}`);
+  } catch (err) {
+    console.error(`⚠ Failed to save ${keyName} to file:`, err.message);
+    console.error(`⚠ Key will be regenerated on next restart!`);
+  }
+  
+  return newKey;
+}
+
+// Encryption for sensitive data at rest
 function encrypt(text) {
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.substring(0, 64), 'hex'), iv);
@@ -88,7 +135,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
     const token = jwt.sign(
       { id: user.id, username: user.username, isAdmin: user.is_admin },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       { expiresIn: '24h' }
     );
     res.json({
@@ -271,6 +318,55 @@ app.put('/api/users/:id/group', authenticateToken, async (req, res) => {
     await pool.query('UPDATE users SET group_id = $1 WHERE id = $2', [groupId, req.params.id]);
     res.json({ success: true });
   } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update user (admin only)
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+    
+    const { email, groupId, isAdmin, password } = req.body;
+    const userId = req.params.id;
+    
+    // Build update query dynamically
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (email !== undefined) {
+      updates.push(`email = $${paramIndex++}`);
+      values.push(email);
+    }
+    
+    if (groupId !== undefined) {
+      updates.push(`group_id = $${paramIndex++}`);
+      values.push(groupId);
+    }
+    
+    if (isAdmin !== undefined) {
+      updates.push(`is_admin = $${paramIndex++}`);
+      values.push(isAdmin);
+    }
+    
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      updates.push(`password = $${paramIndex++}`);
+      values.push(hashedPassword);
+    }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+    
+    values.push(userId);
+    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, username, email, is_admin, group_id`;
+    
+    const result = await pool.query(query, values);
+    res.json({ user: result.rows[0] });
+  } catch (error) {
+    console.error('Update user error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -495,6 +591,68 @@ app.get('/api/transfers/history', authenticateToken, async (req, res) => {
   }
 });
 
+// Get scheduled transfers
+app.get('/api/transfers/scheduled', authenticateToken, async (req, res) => {
+  try {
+    const { filter } = req.query;
+    
+    let query = 'SELECT * FROM transfers WHERE user_id = $1 AND status = $2';
+    const params = [req.user.id, 'scheduled'];
+    
+    if (filter === 'recurring') {
+      query += ' AND schedule_type = $3';
+      params.push('recurring');
+    } else if (filter === 'once') {
+      query += ' AND schedule_type = $3';
+      params.push('once');
+    } else if (filter === 'active') {
+      query += ' AND enabled = $3';
+      params.push(true);
+    } else if (filter === 'disabled') {
+      query += ' AND enabled = $3';
+      params.push(false);
+    }
+    
+    query += ' ORDER BY next_run ASC NULLS LAST';
+    
+    const result = await pool.query(query, params);
+    
+    // Get statistics
+    const stats = await pool.query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE enabled = true) as active,
+        COUNT(*) FILTER (WHERE enabled = false) as disabled,
+        COUNT(*) FILTER (WHERE schedule_type = 'recurring') as recurring
+      FROM transfers 
+      WHERE user_id = $1 AND status = 'scheduled'
+    `, [req.user.id]);
+    
+    res.json({ 
+      transfers: result.rows,
+      statistics: stats.rows[0]
+    });
+  } catch (error) {
+    console.error('Scheduled transfers error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Toggle scheduled transfer enabled/disabled
+app.put('/api/transfers/:id/toggle', authenticateToken, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const result = await pool.query(
+      'UPDATE transfers SET enabled = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
+      [enabled, req.params.id, req.user.id]
+    );
+    res.json({ transfer: result.rows[0] });
+  } catch (error) {
+    console.error('Toggle transfer error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.post('/api/transfers', authenticateToken, async (req, res) => {
   try {
     const { sourceRemote, sourcePath, destRemote, destPath, operation, schedule } = req.body;
@@ -535,13 +693,18 @@ app.post('/api/transfers', authenticateToken, async (req, res) => {
     
     // If not scheduled, start immediately
     if (!schedule || !schedule.enabled) {
-      startTransfer(result.rows[0], req.user.id);
+      await startTransfer(result.rows[0], req.user.id);
     }
     
     res.status(201).json({ transfer: result.rows[0] });
   } catch (error) {
     console.error('Create transfer error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to create transfer', 
+      details: error.message,
+      hint: error.code === '42703' ? 'Database schema outdated - rebuild container' : null
+    });
   }
 });
 
@@ -610,7 +773,16 @@ app.get('/api/notifications/settings', authenticateToken, async (req, res) => {
       'SELECT * FROM notification_settings WHERE user_id = $1',
       [req.user.id]
     );
-    res.json({ settings: result.rows[0] || null });
+    
+    if (result.rows[0]) {
+      const settings = { ...result.rows[0] };
+      // Don't send encrypted password to client
+      // Just indicate if password is set
+      settings.smtp_pass = settings.smtp_pass ? '••••••••' : '';
+      res.json({ settings });
+    } else {
+      res.json({ settings: null });
+    }
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -618,28 +790,36 @@ app.get('/api/notifications/settings', authenticateToken, async (req, res) => {
 
 app.post('/api/notifications/settings', authenticateToken, async (req, res) => {
   try {
-    const { email_enabled, email_address, smtp_host, smtp_port, smtp_user, smtp_pass, notify_on_failure, notify_on_success, daily_report } = req.body;
+    const { email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, smtp_pass, notify_on_failure, notify_on_success, daily_report } = req.body;
+    
+    // Encrypt SMTP password if provided
+    const encryptedPass = smtp_pass ? encrypt(smtp_pass) : null;
     
     const result = await pool.query(`
       INSERT INTO notification_settings 
-      (user_id, email_enabled, email_address, smtp_host, smtp_port, smtp_user, smtp_pass, notify_on_failure, notify_on_success, daily_report)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      (user_id, email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, smtp_pass, notify_on_failure, notify_on_success, daily_report)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (user_id) 
       DO UPDATE SET 
         email_enabled = $2,
         email_address = $3,
-        smtp_host = $4,
-        smtp_port = $5,
-        smtp_user = $6,
-        smtp_pass = $7,
-        notify_on_failure = $8,
-        notify_on_success = $9,
-        daily_report = $10,
+        from_email = $4,
+        smtp_host = $5,
+        smtp_port = $6,
+        smtp_user = $7,
+        smtp_pass = $8,
+        notify_on_failure = $9,
+        notify_on_success = $10,
+        daily_report = $11,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
-    `, [req.user.id, email_enabled, email_address, smtp_host, smtp_port, smtp_user, smtp_pass, notify_on_failure, notify_on_success, daily_report]);
+    `, [req.user.id, email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, encryptedPass, notify_on_failure, notify_on_success, daily_report]);
     
-    res.json({ settings: result.rows[0] });
+    // Don't return encrypted password to client
+    const settings = { ...result.rows[0] };
+    delete settings.smtp_pass;
+    
+    res.json({ settings });
   } catch (error) {
     console.error('Save notification settings error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -725,7 +905,7 @@ function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Access token required' });
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid or expired token' });
     req.user = user;
     next();
@@ -761,18 +941,21 @@ async function updateRcloneConfig(userId) {
 }
 
 async function sendEmail(settings, {subject, text, html}) {
-  const transporter = nodemailer.createTransporter({
+  // Decrypt SMTP password
+  const decryptedPass = settings.smtp_pass ? decrypt(settings.smtp_pass) : '';
+  
+  const transporter = nodemailer.createTransport({
     host: settings.smtp_host,
     port: settings.smtp_port,
     secure: settings.smtp_port == 465,
     auth: {
       user: settings.smtp_user,
-      pass: settings.smtp_pass,
+      pass: decryptedPass,
     },
   });
   
   await transporter.sendMail({
-    from: settings.smtp_user,
+    from: settings.from_email || settings.smtp_user,
     to: settings.email_address,
     subject,
     text,
@@ -1172,6 +1355,7 @@ async function initDatabase() {
         user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
         email_enabled BOOLEAN DEFAULT false,
         email_address VARCHAR(255),
+        from_email VARCHAR(255),
         smtp_host VARCHAR(255),
         smtp_port INTEGER,
         smtp_user VARCHAR(255),
