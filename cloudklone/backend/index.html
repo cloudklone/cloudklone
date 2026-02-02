@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudKlone - Cloud Storage Management</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #252525;
+            --text-primary: #e8e8e8;
+            --text-secondary: #a0a0a0;
+            --text-tertiary: #707070;
+            --accent-orange: #ff6b35;
+            --accent-orange-hover: #ff8555;
+            --border-color: #2a2a2a;
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+        
+        /* Auth Screen */
+        .auth-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .auth-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 3rem;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .logo-container {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .logo-container h1 {
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: -0.8px;
+        }
+        
+        /* Main Layout */
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        .sidebar {
+            width: 240px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            padding: 2rem 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 1.5rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .sidebar-header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.4px;
+        }
+        
+        .sidebar-nav {
+            flex: 1;
+            padding: 1.5rem 0.75rem;
+        }
+        
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 0.75rem;
+            margin-bottom: 0.25rem;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .nav-item:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .nav-item.active {
+            background: var(--accent-orange);
+            color: white;
+        }
+        
+        .sidebar-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .content-header {
+            padding: 2rem 3rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .content-header h2 {
+            font-size: 28px;
+            font-weight: 600;
+            letter-spacing: -0.7px;
+            margin-bottom: 0.5rem;
+        }
+        
+        .content-header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .content-body {
+            padding: 2rem 3rem;
+            max-width: 1400px;
+        }
+        
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: -0.3px;
+        }
+        
+        /* Forms */
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+        }
+        
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.15s ease;
+        }
+        
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-orange);
+            background: var(--bg-secondary);
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent-orange);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+        
+        .btn:hover:not(:disabled) {
+            background: var(--accent-orange-hover);
+            transform: translateY(-1px);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background: var(--bg-secondary);
+        }
+        
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 13px;
+        }
+        
+        .btn-danger {
+            background: var(--error);
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            background: #dc2626;
+        }
+        
+        /* Transfer Items */
+        .transfer-item {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            transition: all 0.15s ease;
+        }
+        
+        .transfer-item:hover {
+            border-color: var(--accent-orange);
+        }
+        
+        .transfer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .transfer-status {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .transfer-status.running {
+            background: rgba(255, 107, 53, 0.15);
+            color: var(--accent-orange);
+        }
+        
+        .transfer-status.scheduled {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+        }
+        
+        .transfer-status.completed {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+        }
+        
+        .transfer-status.failed {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--error);
+        }
+        
+        .transfer-path {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-family: 'Monaco', monospace;
+            margin: 0.75rem 0;
+        }
+        
+        .transfer-arrow {
+            color: var(--accent-orange);
+            margin: 0 0.5rem;
+        }
+        
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 1rem 0 0.75rem;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-orange-hover));
+            transition: width 0.3s ease;
+        }
+        
+        .transfer-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            font-family: 'Monaco', monospace;
+        }
+        
+        .transfer-stats strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        
+        .transfer-error {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: rgba(239, 68, 68, 0.1);
+            border-left: 3px solid var(--error);
+            border-radius: 4px;
+            font-size: 13px;
+            color: var(--error);
+        }
+        
+        /* Remote Items */
+        .remote-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.25rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            transition: all 0.15s ease;
+        }
+        
+        .remote-item:hover {
+            border-color: var(--accent-orange);
+        }
+        
+        .remote-info h4 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        .remote-info p {
+            font-size: 13px;
+            color: var(--text-tertiary);
+        }
+        
+        .remote-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.5rem;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--accent-orange);
+            margin-bottom: 0.25rem;
+        }
+        
+        .stat-label {
+            font-size: 13px;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Grid Layouts */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        
+        /* Utilities */
+        .hidden { display: none !important; }
+        .text-center { text-align: center; }
+        .mb-2 { margin-bottom: 1rem; }
+        .mb-3 { margin-bottom: 1.5rem; }
+        .mt-2 { margin-top: 1rem; }
+        
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: var(--text-tertiary);
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+            
+            .content-header, .content-body {
+                padding: 1.5rem;
+            }
+            
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="auth-section" class="auth-container">
+        <div class="auth-card">
+            <div class="logo-container">
+                <h1>CloudKlone</h1>
+            </div>
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="username" value="admin" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="password" value="admin" autocomplete="current-password">
+            </div>
+            <button class="btn" onclick="login()" style="width: 100%; margin-top: 0.5rem;">Sign In</button>
+            <p id="login-error" style="color: var(--error); margin-top: 1rem; text-align: center; font-size: 13px;"></p>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app-section" class="app-container hidden">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>CloudKlone</h1>
+            </div>
+            <nav class="sidebar-nav">
+                <div class="nav-item active" onclick="showTab('transfers')">Transfers</div>
+                <div class="nav-item" onclick="showTab('history')">History</div>
+                <div class="nav-item" onclick="showTab('remotes')">Remotes</div>
+                <div class="nav-item" onclick="showTab('settings')">Settings</div>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="btn btn-secondary btn-small" onclick="logout()" style="width: 100%;">Logout</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Transfers Tab -->
+            <div id="tab-transfers" class="tab-content">
+                <div class="content-header">
+                    <h2>Transfers</h2>
+                    <p>Create and monitor cloud-to-cloud transfers</p>
+                </div>
+                <div class="content-body">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">New Transfer</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Operation</label>
+                            <select id="operation">
+                                <option value="copy">Copy (preserve source)</option>
+                                <option value="sync">Sync (mirror to destination)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="card" style="background: var(--bg-tertiary); padding: 1rem; margin-bottom: 1.5rem;">
+                            <div class="form-group" style="margin-bottom: 0.75rem;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="schedule-enabled" style="width: auto;" onchange="toggleSchedule()">
+                                    Schedule this transfer
+                                </label>
+                            </div>
+                            <div id="schedule-options" class="hidden">
+                                <div class="form-group">
+                                    <label>Schedule Type</label>
+                                    <select id="schedule-type" onchange="toggleScheduleType()">
+                                        <option value="once">Run once at specific time</option>
+                                        <option value="recurring">Run on repeat</option>
+                                    </select>
+                                </div>
+                                <div id="schedule-once">
+                                    <div class="form-group">
+                                        <label>Date & Time</label>
+                                        <input type="datetime-local" id="schedule-datetime">
+                                    </div>
+                                </div>
+                                <div id="schedule-recurring" class="hidden">
+                                    <div class="form-group">
+                                        <label>Repeat Interval</label>
+                                        <select id="schedule-interval">
+                                            <option value="hourly">Every hour</option>
+                                            <option value="daily">Every day</option>
+                                            <option value="weekly">Every week</option>
+                                            <option value="monthly">Every month</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Start Time (for daily/weekly/monthly)</label>
+                                        <input type="time" id="schedule-time" value="00:00">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid-2">
+                            <div>
+                                <h4 style="margin-bottom: 1rem; font-size: 14px; color: var(--text-secondary);">Source</h4>
+                                <div class="form-group">
+                                    <label>Remote</label>
+                                    <select id="source-remote"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Path</label>
+                                    <input type="text" id="source-path" value="/" placeholder="/">
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style="margin-bottom: 1rem; font-size: 14px; color: var(--text-secondary);">Destination</h4>
+                                <div class="form-group">
+                                    <label>Remote</label>
+                                    <select id="dest-remote"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Path</label>
+                                    <input type="text" id="dest-path" value="/" placeholder="/">
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn" onclick="startTransfer()">Start Transfer</button>
+                    </div>
+
+                    <h3 style="margin: 2rem 0 1rem; font-size: 18px; font-weight: 600;">Active Transfers</h3>
+                    <div id="transfers-list"></div>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="tab-history" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>Transfer History</h2>
+                    <p>View past transfers and statistics</p>
+                </div>
+                <div class="content-body">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-total">0</div>
+                            <div class="stat-label">Total Transfers</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-completed" style="color: var(--success);">0</div>
+                            <div class="stat-label">Completed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-failed" style="color: var(--error);">0</div>
+                            <div class="stat-label">Failed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-running" style="color: var(--accent-orange);">0</div>
+                            <div class="stat-label">Running</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Filter</div>
+                            <select id="history-filter" onchange="loadHistory()" style="width: 200px;">
+                                <option value="">All Transfers</option>
+                                <option value="completed">Completed</option>
+                                <option value="failed">Failed</option>
+                                <option value="running">Running</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="history-list"></div>
+                </div>
+            </div>
+
+            <!-- Remotes Tab -->
+            <div id="tab-remotes" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>Remotes</h2>
+                    <p>Manage cloud storage connections</p>
+                </div>
+                <div class="content-body">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Add Remote</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Remote Name</label>
+                            <input type="text" id="remote-name" placeholder="my-remote">
+                        </div>
+                        <div class="form-group">
+                            <label>Provider</label>
+                            <select id="provider">
+                                <option value="">Select provider...</option>
+                            </select>
+                        </div>
+                        <div id="provider-config"></div>
+                        <button class="btn" onclick="addRemote()">Add Remote</button>
+                    </div>
+
+                    <h3 style="margin: 2rem 0 1rem; font-size: 18px; font-weight: 600;">Your Remotes</h3>
+                    <div id="remotes-list"></div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="tab-settings" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>Settings</h2>
+                    <p>Configure notifications and preferences</p>
+                </div>
+                <div class="content-body">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Email Notifications</div>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="email-enabled" style="width: auto;">
+                                Enable email notifications
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Notification Email</label>
+                            <input type="email" id="email-address" placeholder="your-email@example.com">
+                        </div>
+                        <h4 style="margin: 2rem 0 1rem; font-size: 14px; font-weight: 600;">SMTP Server</h4>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label>SMTP Host</label>
+                                <input type="text" id="smtp-host" placeholder="smtp.gmail.com">
+                            </div>
+                            <div class="form-group">
+                                <label>SMTP Port</label>
+                                <input type="number" id="smtp-port" placeholder="587">
+                            </div>
+                        </div>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" id="smtp-user" placeholder="your-email@example.com">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" id="smtp-pass" placeholder="your-password">
+                            </div>
+                        </div>
+                        <h4 style="margin: 2rem 0 1rem; font-size: 14px; font-weight: 600;">Notification Preferences</h4>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="notify-failure" style="width: auto;" checked>
+                                Notify on transfer failure
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="notify-success" style="width: auto;">
+                                Notify on transfer success
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="daily-report" style="width: auto;">
+                                Daily summary report (sent at midnight)
+                            </label>
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn" onclick="saveSettings()">Save Settings</button>
+                            <button class="btn btn-secondary" onclick="testEmail()">Test Email</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let token = localStorage.getItem('token');
+        let ws = null;
+        let currentTab = 'transfers';
+
+        if (token) showApp();
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const res = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem('token', token);
+                    showApp();
+                } else {
+                    document.getElementById('login-error').textContent = data.error;
+                }
+            } catch (err) {
+                document.getElementById('login-error').textContent = 'Connection failed';
+            }
+        }
+
+        function logout() {
+            token = null;
+            localStorage.removeItem('token');
+            document.getElementById('auth-section').classList.remove('hidden');
+            document.getElementById('app-section').classList.add('hidden');
+            if (ws) ws.close();
+        }
+
+        function showApp() {
+            document.getElementById('auth-section').classList.add('hidden');
+            document.getElementById('app-section').classList.remove('hidden');
+            loadProviders();
+            loadRemotes();
+            loadTransfers();
+            loadHistory();
+            loadSettings();
+            connectWebSocket();
+            setInterval(loadTransfers, 5000);
+        }
+
+        function showTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(`tab-${tab}`).classList.remove('hidden');
+            event.target.classList.add('active');
+            
+            if (tab === 'history') loadHistory();
+        }
+        
+        function toggleSchedule() {
+            const enabled = document.getElementById('schedule-enabled').checked;
+            document.getElementById('schedule-options').classList.toggle('hidden', !enabled);
+        }
+        
+        function toggleScheduleType() {
+            const type = document.getElementById('schedule-type').value;
+            document.getElementById('schedule-once').classList.toggle('hidden', type !== 'once');
+            document.getElementById('schedule-recurring').classList.toggle('hidden', type !== 'recurring');
+        }
+
+        async function loadProviders() {
+            try {
+                const res = await fetch(`${API_BASE}/providers`);
+                const data = await res.json();
+                
+                const select = document.getElementById('provider');
+                select.innerHTML = '<option value="">Select provider...</option>';
+                data.providers.forEach(p => {
+                    select.innerHTML += `<option value="${p.type}">${p.name}</option>`;
+                });
+                
+                select.addEventListener('change', (e) => {
+                    const provider = data.providers.find(p => p.type === e.target.value);
+                    if (!provider) {
+                        document.getElementById('provider-config').innerHTML = '';
+                        return;
+                    }
+                    
+                    let html = '';
+                    provider.fields.forEach(f => {
+                        html += `<div class="form-group">
+                            <label>${f.label}${f.required ? ' *' : ''}</label>`;
+                        
+                        if (f.type === 'select') {
+                            html += `<select name="${f.name}">`;
+                            f.options.forEach(opt => {
+                                html += `<option value="${opt}">${opt}</option>`;
+                            });
+                            html += `</select>`;
+                        } else if (f.type === 'textarea') {
+                            html += `<textarea name="${f.name}" placeholder="${f.placeholder || ''}"></textarea>`;
+                        } else {
+                            html += `<input type="${f.type}" name="${f.name}" placeholder="${f.placeholder || ''}" ${f.default ? `value="${f.default}"` : ''}>`;
+                        }
+                        html += `</div>`;
+                    });
+                    
+                    document.getElementById('provider-config').innerHTML = html;
+                });
+            } catch (err) {
+                console.error('Failed to load providers:', err);
+            }
+        }
+
+        async function loadRemotes() {
+            try {
+                const res = await fetch(`${API_BASE}/remotes`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                const sourceSelect = document.getElementById('source-remote');
+                const destSelect = document.getElementById('dest-remote');
+                
+                sourceSelect.innerHTML = '<option value="">Select remote...</option>';
+                destSelect.innerHTML = '<option value="">Select remote...</option>';
+                
+                data.remotes.forEach(remote => {
+                    sourceSelect.innerHTML += `<option value="${remote.name}">${remote.name} (${remote.type})</option>`;
+                    destSelect.innerHTML += `<option value="${remote.name}">${remote.name} (${remote.type})</option>`;
+                });
+                
+                // Update remotes list
+                const list = document.getElementById('remotes-list');
+                if (data.remotes.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">☁️</div><p>No remotes configured yet</p></div>';
+                } else {
+                    list.innerHTML = data.remotes.map(r => `
+                        <div class="remote-item">
+                            <div class="remote-info">
+                                <h4>${r.name}</h4>
+                                <p>${r.type} • Added ${new Date(r.created_at).toLocaleDateString()}</p>
+                            </div>
+                            <div class="remote-actions">
+                                <button class="btn btn-secondary btn-small" onclick="testRemote(${r.id})">Test</button>
+                                <button class="btn btn-danger btn-small" onclick="deleteRemote(${r.id}, '${r.name}')">Delete</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error('Failed to load remotes:', err);
+            }
+        }
+
+        async function addRemote() {
+            const name = document.getElementById('remote-name').value;
+            const type = document.getElementById('provider').value;
+            
+            if (!name || !type) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            
+            const config = {};
+            document.querySelectorAll('#provider-config input, #provider-config select, #provider-config textarea').forEach(input => {
+                if (input.value) config[input.name] = input.value;
+            });
+            
+            const btn = event.target;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Validating connection...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/remotes`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ name, type, config })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('remote-name').value = '';
+                    document.getElementById('provider').value = '';
+                    document.getElementById('provider-config').innerHTML = '';
+                    loadRemotes();
+                    alert(data.message || '✅ Remote added successfully!');
+                } else {
+                    alert('❌ ' + (data.error || 'Failed to add remote') + (data.details ? '\n\nDetails: ' + data.details : ''));
+                }
+            } catch (err) {
+                alert('❌ Connection error: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        async function deleteRemote(id, name) {
+            if (!confirm(`Delete remote "${name}"? This cannot be undone.`)) return;
+            
+            try {
+                await fetch(`${API_BASE}/remotes/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                loadRemotes();
+            } catch (err) {
+                alert('Failed to delete remote');
+            }
+        }
+
+        async function testRemote(id) {
+            try {
+                const res = await fetch(`${API_BASE}/remotes/${id}/test`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                alert(data.success ? '✅ Connection successful!' : '❌ ' + data.error);
+            } catch (err) {
+                alert('Test failed');
+            }
+        }
+
+        async function loadTransfers() {
+            try {
+                const res = await fetch(`${API_BASE}/transfers`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                const list = document.getElementById('transfers-list');
+                if (data.transfers.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📦</div><p>No active transfers</p></div>';
+                    return;
+                }
+                
+                list.innerHTML = data.transfers.map(t => `
+                    <div class="transfer-item">
+                        <div class="transfer-header">
+                            <span class="transfer-status ${t.status}">${t.status}</span>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <span style="color: var(--text-tertiary); font-size: 12px; text-transform: uppercase;">${t.operation}</span>
+                                ${t.status === 'running' || t.status === 'queued' ? `
+                                    <button class="btn btn-danger btn-small" onclick="cancelTransfer('${t.transfer_id}')">Cancel</button>
+                                ` : ''}
+                                ${t.status === 'failed' || t.status === 'completed' ? `
+                                    <button class="btn btn-secondary btn-small" onclick="deleteTransfer('${t.transfer_id}')">Delete</button>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <div class="transfer-path">
+                            <span>${t.source_remote}:${t.source_path}</span>
+                            <span class="transfer-arrow">→</span>
+                            <span>${t.dest_remote}:${t.dest_path}</span>
+                        </div>
+                        ${t.schedule_type ? `
+                            <div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(255, 107, 53, 0.1); border-radius: 6px; font-size: 12px;">
+                                <strong>📅 Scheduled:</strong> ${t.schedule_type === 'once' ? 'One-time' : t.schedule_interval} 
+                                ${t.next_run ? '• Next run: ' + new Date(t.next_run).toLocaleString() : ''}
+                            </div>
+                        ` : ''}
+                        ${t.progress ? `
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${t.progress.percentage || 0}%"></div>
+                            </div>
+                            <div class="transfer-stats">
+                                <span><strong>${t.progress.transferred || '0 B'}</strong> transferred</span>
+                                <span>${t.progress.speed || '0 B/s'}</span>
+                                <span>ETA: ${t.progress.eta || 'calculating...'}</span>
+                            </div>
+                            ${t.progress.percentage ? `
+                                <div style="text-align: center; margin-top: 0.5rem; font-size: 11px; color: var(--text-tertiary);">
+                                    ${t.progress.percentage}% complete
+                                </div>
+                            ` : ''}
+                        ` : ''}
+                        ${t.error ? `<div class="transfer-error">${t.error}</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load transfers:', err);
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const status = document.getElementById('history-filter')?.value || '';
+                const res = await fetch(`${API_BASE}/transfers/history?status=${status}&limit=50`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                // Update stats
+                if (data.statistics) {
+                    document.getElementById('stat-total').textContent = data.statistics.total;
+                    document.getElementById('stat-completed').textContent = data.statistics.completed;
+                    document.getElementById('stat-failed').textContent = data.statistics.failed;
+                    document.getElementById('stat-running').textContent = data.statistics.running;
+                }
+                
+                const list = document.getElementById('history-list');
+                if (data.transfers.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📊</div><p>No transfer history</p></div>';
+                    return;
+                }
+                
+                list.innerHTML = data.transfers.map(t => `
+                    <div class="transfer-item">
+                        <div class="transfer-header">
+                            <span class="transfer-status ${t.status}">${t.status}</span>
+                            <span style="color: var(--text-tertiary); font-size: 11px;">
+                                ${new Date(t.created_at).toLocaleString()}
+                            </span>
+                        </div>
+                        <div class="transfer-path">
+                            <span>${t.source_remote}:${t.source_path}</span>
+                            <span class="transfer-arrow">→</span>
+                            <span>${t.dest_remote}:${t.dest_path}</span>
+                        </div>
+                        ${t.progress && t.progress.transferred ? `
+                            <div style="margin-top: 0.75rem; font-size: 13px; color: var(--text-secondary);">
+                                Transferred: <strong style="color: var(--text-primary);">${t.progress.transferred}</strong>
+                            </div>
+                        ` : ''}
+                        ${t.error ? `<div class="transfer-error">${t.error}</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load history:', err);
+            }
+        }
+
+        async function startTransfer() {
+            const operation = document.getElementById('operation').value;
+            const sourceRemote = document.getElementById('source-remote').value;
+            const sourcePath = document.getElementById('source-path').value;
+            const destRemote = document.getElementById('dest-remote').value;
+            const destPath = document.getElementById('dest-path').value;
+            
+            if (!sourceRemote || !destRemote) {
+                alert('Please select source and destination remotes');
+                return;
+            }
+            
+            // Build schedule object if enabled
+            let schedule = null;
+            if (document.getElementById('schedule-enabled').checked) {
+                const type = document.getElementById('schedule-type').value;
+                schedule = {
+                    enabled: true,
+                    type: type
+                };
+                
+                if (type === 'once') {
+                    const datetime = document.getElementById('schedule-datetime').value;
+                    if (!datetime) {
+                        alert('Please select a date and time for the scheduled transfer');
+                        return;
+                    }
+                    schedule.datetime = datetime;
+                } else if (type === 'recurring') {
+                    schedule.interval = document.getElementById('schedule-interval').value;
+                    schedule.time = document.getElementById('schedule-time').value;
+                }
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/transfers`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        operation,
+                        sourceRemote,
+                        sourcePath,
+                        destRemote,
+                        destPath,
+                        schedule
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Reset form
+                    document.getElementById('schedule-enabled').checked = false;
+                    toggleSchedule();
+                    
+                    loadTransfers();
+                    
+                    if (schedule && schedule.enabled) {
+                        alert(`✅ Transfer scheduled successfully! ${schedule.type === 'once' ? 'Will run at specified time.' : 'Will run ' + schedule.interval + '.'}`);
+                    }
+                } else {
+                    alert('❌ Failed to create transfer: ' + (data.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('❌ Failed to start transfer: ' + err.message);
+            }
+        }
+        
+        async function cancelTransfer(id) {
+            if (!confirm('Cancel this transfer? If running, it will be stopped immediately.')) return;
+            
+            try {
+                await fetch(`${API_BASE}/transfers/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                loadTransfers();
+                loadHistory();
+            } catch (err) {
+                alert('Failed to cancel transfer');
+            }
+        }
+        
+        async function deleteTransfer(id) {
+            if (!confirm('Delete this transfer record?')) return;
+            
+            try {
+                await fetch(`${API_BASE}/transfers/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                loadTransfers();
+                loadHistory();
+            } catch (err) {
+                alert('Failed to delete transfer');
+            }
+        }
+
+        async function loadSettings() {
+            try {
+                const res = await fetch(`${API_BASE}/notifications/settings`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (data.settings) {
+                    const s = data.settings;
+                    document.getElementById('email-enabled').checked = s.email_enabled;
+                    document.getElementById('email-address').value = s.email_address || '';
+                    document.getElementById('smtp-host').value = s.smtp_host || '';
+                    document.getElementById('smtp-port').value = s.smtp_port || 587;
+                    document.getElementById('smtp-user').value = s.smtp_user || '';
+                    document.getElementById('smtp-pass').value = s.smtp_pass || '';
+                    document.getElementById('notify-failure').checked = s.notify_on_failure !== false;
+                    document.getElementById('notify-success').checked = s.notify_on_success || false;
+                    document.getElementById('daily-report').checked = s.daily_report || false;
+                }
+            } catch (err) {
+                console.error('Failed to load settings:', err);
+            }
+        }
+
+        async function saveSettings() {
+            try {
+                const settings = {
+                    email_enabled: document.getElementById('email-enabled').checked,
+                    email_address: document.getElementById('email-address').value,
+                    smtp_host: document.getElementById('smtp-host').value,
+                    smtp_port: parseInt(document.getElementById('smtp-port').value),
+                    smtp_user: document.getElementById('smtp-user').value,
+                    smtp_pass: document.getElementById('smtp-pass').value,
+                    notify_on_failure: document.getElementById('notify-failure').checked,
+                    notify_on_success: document.getElementById('notify-success').checked,
+                    daily_report: document.getElementById('daily-report').checked
+                };
+                
+                await fetch(`${API_BASE}/notifications/settings`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(settings)
+                });
+                
+                alert('✅ Settings saved successfully!');
+            } catch (err) {
+                alert('❌ Failed to save settings');
+            }
+        }
+
+        async function testEmail() {
+            try {
+                const res = await fetch(`${API_BASE}/notifications/test`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    alert('✅ Test email sent! Check your inbox.');
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (err) {
+                alert('❌ Failed to send test email');
+            }
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type && data.type.includes('transfer')) {
+                    loadTransfers();
+                    if (currentTab === 'history') loadHistory();
+                }
+            };
+            
+            ws.onclose = () => {
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+
+        // Allow Enter key to submit login
+        document.getElementById('password')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
+    </script>
+</body>
+</html>
