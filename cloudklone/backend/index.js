@@ -116,6 +116,256 @@ app.get('/logo.png', (req, res) => {
   res.sendFile(path.join(__dirname, 'logo.png'));
 });
 
+// ==================== RBAC & AUDIT HELPERS ====================
+
+// Role permission definitions
+const ROLE_PERMISSIONS = {
+  'read_only': {
+    role: 'read_only',
+    can_create_copy: false,
+    can_create_sync: false,
+    can_edit_transfers: false,
+    can_delete_own_transfers: false,
+    can_delete_any_transfers: false,
+    can_manage_remotes: false,
+    can_manage_settings: false,
+    can_manage_users: false
+  },
+  'operator': {
+    role: 'operator',
+    can_create_copy: true,
+    can_create_sync: false,
+    can_edit_transfers: false,
+    can_delete_own_transfers: false,
+    can_delete_any_transfers: false,
+    can_manage_remotes: false,
+    can_manage_settings: false,
+    can_manage_users: false
+  },
+  'power_user': {
+    role: 'power_user',
+    can_create_copy: true,
+    can_create_sync: true,
+    can_edit_transfers: false,
+    can_delete_own_transfers: true,
+    can_delete_any_transfers: false,
+    can_manage_remotes: true,
+    can_manage_settings: false,
+    can_manage_users: false
+  },
+  'admin': {
+    role: 'admin',
+    can_create_copy: true,
+    can_create_sync: true,
+    can_edit_transfers: true,
+    can_delete_own_transfers: true,
+    can_delete_any_transfers: true,
+    can_manage_remotes: true,
+    can_manage_settings: true,
+    can_manage_users: true
+  }
+};
+
+// Get user's permissions from their group
+async function getUserPermissions(userId) {
+  try {
+    const result = await pool.query(`
+      SELECT g.permissions, u.is_admin, u.group_id
+      FROM users u
+      LEFT JOIN groups g ON u.group_id = g.id
+      WHERE u.id = $1
+    `, [userId]);
+    
+    if (!result.rows[0]) return null;
+    
+    const user = result.rows[0];
+    
+    // Admins have all permissions
+    if (user.is_admin) {
+      return ROLE_PERMISSIONS.admin;
+    }
+    
+    // If user has group with permissions, use those
+    if (user.group_id && user.permissions) {
+      return user.permissions;
+    }
+    
+    // Default to operator permissions
+    return ROLE_PERMISSIONS.operator;
+  } catch (error) {
+    console.error('Get user permissions error:', error);
+    return ROLE_PERMISSIONS.operator; // Safe default
+  }
+}
+
+// Log audit event
+async function logAudit({ user_id, username, action, resource_type, resource_id, resource_name, details, ip_address, user_agent }) {
+  try {
+    await pool.query(`
+      INSERT INTO audit_logs 
+      (user_id, username, action, resource_type, resource_id, resource_name, details, ip_address, user_agent)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `, [user_id, username, action, resource_type, resource_id, resource_name, JSON.stringify(details || {}), ip_address, user_agent]);
+  } catch (error) {
+    console.error('Audit log error:', error);
+  }
+}
+
+// Middleware: Check if user has specific permission
+function requirePermission(permission) {
+  return async (req, res, next) => {
+    try {
+      const permissions = await getUserPermissions(req.user.id);
+      
+      if (!permissions || !permissions[permission]) {
+        await logAudit({
+          user_id: req.user.id,
+          username: req.user.username,
+          action: 'permission_denied',
+          resource_type: permission,
+          resource_id: null,
+          resource_name: req.path,
+          details: { permission, reason: 'insufficient_permissions' },
+          ip_address: req.ip,
+          user_agent: req.get('user-agent')
+        });
+        return res.status(403).json({ error: 'Insufficient permissions', required: permission });
+      }
+      
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: 'Server error' });
+    }
+  };
+}
+
+// Middleware: Check operation type (copy vs sync)
+async function validateTransferOperation(req, res, next) {
+  try {
+    const { operation } = req.body;
+    const permissions = await getUserPermissions(req.user.id);
+    
+    if (operation === 'sync' && !permissions.can_create_sync) {
+      await logAudit({
+        user_id: req.user.id,
+        username: req.user.username,
+        action: 'operation_denied',
+        resource_type: 'transfer',
+        resource_id: null,
+        resource_name: 'sync',
+        details: { operation, reason: 'sync_not_permitted' },
+        ip_address: req.ip,
+        user_agent: req.get('user-agent')
+      });
+      return res.status(403).json({ 
+        error: 'Sync operations not permitted for your role. Only copy operations are allowed.',
+        allowedOperations: permissions.can_create_copy ? ['copy'] : []
+      });
+    }
+    
+    if (operation === 'copy' && !permissions.can_create_copy) {
+      await logAudit({
+        user_id: req.user.id,
+        username: req.user.username,
+        action: 'operation_denied',
+        resource_type: 'transfer',
+        resource_id: null,
+        resource_name: 'copy',
+        details: { operation, reason: 'copy_not_permitted' },
+        ip_address: req.ip,
+        user_agent: req.get('user-agent')
+      });
+      return res.status(403).json({ 
+        error: 'You do not have permission to create transfers.',
+        allowedOperations: []
+      });
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Operation validation error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Middleware: Check ownership for delete
+async function checkTransferOwnership(req, res, next) {
+  try {
+    const permissions = await getUserPermissions(req.user.id);
+    
+    // Admins can delete any transfer
+    if (permissions.can_delete_any_transfers) {
+      return next();
+    }
+    
+    // Power users can delete own transfers
+    if (permissions.can_delete_own_transfers) {
+      const transfer = await pool.query(
+        'SELECT user_id FROM transfers WHERE id = $1',
+        [req.params.id]
+      );
+      
+      if (!transfer.rows[0]) {
+        return res.status(404).json({ error: 'Transfer not found' });
+      }
+      
+      if (transfer.rows[0].user_id !== req.user.id) {
+        await logAudit({
+          user_id: req.user.id,
+          username: req.user.username,
+          action: 'permission_denied',
+          resource_type: 'transfer',
+          resource_id: req.params.id,
+          resource_name: 'delete',
+          details: { reason: 'not_owner' },
+          ip_address: req.ip,
+          user_agent: req.get('user-agent')
+        });
+        return res.status(403).json({ error: 'You can only delete your own transfers' });
+      }
+      
+      return next();
+    }
+    
+    // No delete permission
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'permission_denied',
+      resource_type: 'transfer',
+      resource_id: req.params.id,
+      resource_name: 'delete',
+      details: { reason: 'insufficient_permissions' },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    return res.status(403).json({ error: 'You do not have permission to delete transfers' });
+  } catch (error) {
+    console.error('Ownership check error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Middleware: Admin only
+function requireAdmin(req, res, next) {
+  if (!req.user.isAdmin) {
+    logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'permission_denied',
+      resource_type: 'admin_action',
+      resource_id: null,
+      resource_name: req.path,
+      details: { reason: 'not_admin' },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
 // ==================== AUTH ROUTES ====================
 
 app.post('/api/auth/login', async (req, res) => {
@@ -126,13 +376,43 @@ app.post('/api/auth/login', async (req, res) => {
       [username]
     );
     if (result.rows.length === 0) {
+      await logAudit({
+        user_id: null,
+        username: username,
+        action: 'login_failed',
+        resource_type: 'auth',
+        details: { reason: 'user_not_found' },
+        ip_address: req.ip,
+        user_agent: req.get('user-agent')
+      });
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const user = result.rows[0];
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
+      await logAudit({
+        user_id: user.id,
+        username: user.username,
+        action: 'login_failed',
+        resource_type: 'auth',
+        details: { reason: 'invalid_password' },
+        ip_address: req.ip,
+        user_agent: req.get('user-agent')
+      });
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    
+    // Successful login
+    await logAudit({
+      user_id: user.id,
+      username: user.username,
+      action: 'login_success',
+      resource_type: 'auth',
+      details: { admin: user.is_admin },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    
     const token = jwt.sign(
       { id: user.id, username: user.username, isAdmin: user.is_admin },
       JWT_SECRET,
@@ -144,6 +424,17 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get current user's permissions
+app.get('/api/auth/permissions', authenticateToken, async (req, res) => {
+  try {
+    const permissions = await getUserPermissions(req.user.id);
+    res.json({ permissions });
+  } catch (error) {
+    console.error('Get permissions error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -170,7 +461,7 @@ app.post('/api/auth/register', authenticateToken, async (req, res) => {
 app.get('/api/users', authenticateToken, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin access required' });
-    const result = await pool.query('SELECT id, username, email, is_admin, created_at FROM users ORDER BY created_at DESC');
+    const result = await pool.query('SELECT id, username, email, is_admin, group_id, created_at FROM users ORDER BY created_at DESC');
     res.json({ users: result.rows });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
@@ -288,14 +579,43 @@ app.get('/api/groups', authenticateToken, async (req, res) => {
 app.post('/api/groups', authenticateToken, async (req, res) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin access required' });
-    const { name, description } = req.body;
+    const { name, description, permissions } = req.body;
+    
+    // If permissions provided, use them; otherwise use default operator permissions
+    const groupPermissions = permissions || {
+      role: 'operator',
+      can_create_copy: true,
+      can_create_sync: false,
+      can_edit_transfers: false,
+      can_delete_own_transfers: false,
+      can_delete_any_transfers: false,
+      can_manage_remotes: false,
+      can_manage_settings: false,
+      can_manage_users: false
+    };
+    
     const result = await pool.query(
-      'INSERT INTO groups (name, description) VALUES ($1, $2) RETURNING *',
-      [name, description]
+      'INSERT INTO groups (name, description, permissions) VALUES ($1, $2, $3) RETURNING *',
+      [name, description, JSON.stringify(groupPermissions)]
     );
+    
+    // Log audit event
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'group_created',
+      resource_type: 'group',
+      resource_id: result.rows[0].id,
+      resource_name: name,
+      details: { role: groupPermissions.role },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    
     res.status(201).json({ group: result.rows[0] });
   } catch (error) {
     if (error.code === '23505') return res.status(400).json({ error: 'Group name already exists' });
+    console.error('Create group error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -306,6 +626,58 @@ app.delete('/api/groups/:id', authenticateToken, async (req, res) => {
     await pool.query('DELETE FROM groups WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==================== AUDIT LOGS ROUTES ====================
+
+// Get audit logs
+app.get('/api/audit-logs', authenticateToken, async (req, res) => {
+  try {
+    const { limit = 100, offset = 0, user_id, action, resource_type } = req.query;
+    
+    let query = 'SELECT * FROM audit_logs WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
+    
+    // Non-admins can only see their own logs (optional: remove this for full transparency)
+    // if (!req.user.isAdmin) {
+    //   query += ` AND user_id = $${paramIndex++}`;
+    //   params.push(req.user.id);
+    // }
+    
+    // Filters
+    if (user_id) {
+      query += ` AND user_id = $${paramIndex++}`;
+      params.push(user_id);
+    }
+    
+    if (action) {
+      query += ` AND action = $${paramIndex++}`;
+      params.push(action);
+    }
+    
+    if (resource_type) {
+      query += ` AND resource_type = $${paramIndex++}`;
+      params.push(resource_type);
+    }
+    
+    query += ` ORDER BY timestamp DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    params.push(limit, offset);
+    
+    const result = await pool.query(query, params);
+    
+    // Get total count
+    const countQuery = 'SELECT COUNT(*) FROM audit_logs';
+    const countResult = await pool.query(countQuery);
+    
+    res.json({ 
+      logs: result.rows,
+      total: parseInt(countResult.rows[0].count)
+    });
+  } catch (error) {
+    console.error('Audit logs error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -329,6 +701,8 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     
     const { email, groupId, isAdmin, password } = req.body;
     const userId = req.params.id;
+    
+    console.log('Update user request:', { userId, email, groupId, isAdmin, hasPassword: !!password });
     
     // Build update query dynamically
     const updates = [];
@@ -357,17 +731,28 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     }
     
     if (updates.length === 0) {
+      console.log('No updates provided');
       return res.status(400).json({ error: 'No updates provided' });
     }
     
     values.push(userId);
     const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, username, email, is_admin, group_id`;
     
+    console.log('Executing query:', query);
+    console.log('With values:', values);
+    
     const result = await pool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    console.log('User updated successfully:', result.rows[0]);
     res.json({ user: result.rows[0] });
   } catch (error) {
     console.error('Update user error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
 
@@ -385,7 +770,7 @@ app.get('/api/remotes', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/remotes', authenticateToken, async (req, res) => {
+app.post('/api/remotes', authenticateToken, requirePermission('can_manage_remotes'), async (req, res) => {
   try {
     const { name, type, config } = req.body;
     if (!name || !type || !config) return res.status(400).json({ error: 'Missing required fields' });
@@ -416,6 +801,10 @@ app.post('/api/remotes', authenticateToken, async (req, res) => {
       }
     }
     
+    // Extract test_bucket for R2 (used for testing only, not saved)
+    const testBucket = config.test_bucket || '';
+    delete config.test_bucket; // Remove from config before saving
+    
     // Encrypt sensitive fields in config
     const encryptedConfig = encrypt(JSON.stringify(config));
     
@@ -427,8 +816,13 @@ app.post('/api/remotes', authenticateToken, async (req, res) => {
     }
     await fs.writeFile(tempConfigPath, configContent);
     
-    // Build test args
-    const testArgs = ['lsd', `${name}:`, '--config', tempConfigPath, '--max-depth', '1'];
+    // Build test args - use bucket if provided for R2
+    let testPath = `${name}:`;
+    if (testBucket && config.endpoint && config.endpoint.includes('r2.cloudflarestorage.com')) {
+      testPath = `${name}:${testBucket}`;
+    }
+    
+    const testArgs = ['lsd', testPath, '--config', tempConfigPath, '--max-depth', '1'];
     if (type === 'sftp') {
       testArgs.push('--sftp-skip-links');
     }
@@ -448,7 +842,13 @@ app.post('/api/remotes', authenticateToken, async (req, res) => {
         let endpointInfo = '';
         if (code === 0) {
           const lines = output.split('\n').filter(l => l.trim());
-          endpointInfo = `✅ Connected successfully. Found ${lines.length} items at root.`;
+          
+          // Different message for bucket-specific test
+          if (testBucket) {
+            endpointInfo = `✅ Connected successfully to bucket '${testBucket}'. Found ${lines.length} items.`;
+          } else {
+            endpointInfo = `✅ Connected successfully. Found ${lines.length} items at root.`;
+          }
           
           // Detect endpoint/region info
           if (type === 's3') {
@@ -487,6 +887,19 @@ app.post('/api/remotes', authenticateToken, async (req, res) => {
     );
     await updateRcloneConfig(req.user.id);
     
+    // Log audit event
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'remote_created',
+      resource_type: 'remote',
+      resource_id: result.rows[0].id,
+      resource_name: name,
+      details: { type },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    
     res.status(201).json({ 
       remote: result.rows[0],
       message: testResult.endpointInfo 
@@ -498,7 +911,7 @@ app.post('/api/remotes', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/remotes/:id', authenticateToken, async (req, res) => {
+app.put('/api/remotes/:id', authenticateToken, requirePermission('can_manage_remotes'), async (req, res) => {
   try {
     const { name, type, config } = req.body;
     const result = await pool.query(
@@ -507,16 +920,49 @@ app.put('/api/remotes/:id', authenticateToken, async (req, res) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Remote not found' });
     await updateRcloneConfig(req.user.id);
+    
+    // Log audit event
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'remote_updated',
+      resource_type: 'remote',
+      resource_id: parseInt(req.params.id),
+      resource_name: name,
+      details: { type },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    
     res.json({ remote: result.rows[0] });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.delete('/api/remotes/:id', authenticateToken, async (req, res) => {
+app.delete('/api/remotes/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
+    // Get remote name before deleting
+    const remote = await pool.query('SELECT name FROM remotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    
     await pool.query('DELETE FROM remotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
     await updateRcloneConfig(req.user.id);
+    
+    // Log audit event
+    if (remote.rows.length > 0) {
+      await logAudit({
+        user_id: req.user.id,
+        username: req.user.username,
+        action: 'remote_deleted',
+        resource_type: 'remote',
+        resource_id: parseInt(req.params.id),
+        resource_name: remote.rows[0].name,
+        details: {},
+        ip_address: req.ip,
+        user_agent: req.get('user-agent')
+      });
+    }
+    
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
@@ -525,17 +971,68 @@ app.delete('/api/remotes/:id', authenticateToken, async (req, res) => {
 
 app.post('/api/remotes/:id/test', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT name FROM remotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    const result = await pool.query('SELECT name, type, config FROM remotes WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Remote not found' });
-    const remoteName = result.rows[0].name;
-    const rclone = spawn('rclone', ['lsd', `${remoteName}:`, '--config', `/root/.config/rclone/user_${req.user.id}.conf`]);
+    
+    const remote = result.rows[0];
+    const remoteName = remote.name;
+    const configFile = `/root/.config/rclone/user_${req.user.id}.conf`;
+    
+    // Build test args
+    const testArgs = ['lsd', `${remoteName}:`, '--config', configFile, '--max-depth', '1'];
+    
+    // Add S3-specific flags for R2 (no bucket check)
+    const isR2 = remote.type === 's3' && remote.config.endpoint && remote.config.endpoint.includes('r2.cloudflarestorage.com');
+    if (isR2) {
+      testArgs.push('--s3-no-check-bucket');
+    }
+    
+    // Add SFTP-specific flags
+    if (remote.type === 'sftp') {
+      testArgs.push('--sftp-skip-links');
+    }
+    
+    const rclone = spawn('rclone', testArgs);
+    let output = '';
     let errorOutput = '';
+    
+    rclone.stdout.on('data', (data) => { output += data.toString(); });
     rclone.stderr.on('data', (data) => { errorOutput += data.toString(); });
+    
     rclone.on('close', (code) => {
-      if (code === 0) res.json({ success: true, message: 'Connection successful' });
-      else res.status(400).json({ success: false, error: errorOutput || 'Connection failed' });
+      if (code === 0) {
+        const lines = output.split('\n').filter(l => l.trim());
+        let message = `✅ Connection successful. Found ${lines.length} items.`;
+        
+        // Add provider-specific info
+        if (isR2) {
+          message += ' (Cloudflare R2)';
+        } else if (remote.type === 'sftp') {
+          message += ` (${remote.config.host})`;
+        }
+        
+        res.json({ success: true, message });
+      } else {
+        // For R2 bucket-specific tokens, provide helpful error
+        if (isR2 && errorOutput.includes('AccessDenied')) {
+          res.status(400).json({ 
+            success: false, 
+            error: 'Cannot list all buckets with this token. This is expected with bucket-specific tokens. Your remote will still work for transfers - just specify the bucket name in paths (e.g., remote:bucket-name/path).' 
+          });
+        } else {
+          res.status(400).json({ success: false, error: errorOutput || 'Connection failed' });
+        }
+      }
     });
+    
+    // Timeout after 15 seconds
+    setTimeout(() => {
+      rclone.kill();
+      res.status(408).json({ success: false, error: 'Connection timeout (15s)' });
+    }, 15000);
+    
   } catch (error) {
+    console.error('Test remote error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -653,7 +1150,7 @@ app.put('/api/transfers/:id/toggle', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/transfers', authenticateToken, async (req, res) => {
+app.post('/api/transfers', authenticateToken, validateTransferOperation, async (req, res) => {
   try {
     const { sourceRemote, sourcePath, destRemote, destPath, operation, schedule } = req.body;
     if (!sourceRemote || !sourcePath || !destRemote || !destPath || !operation)
@@ -691,6 +1188,19 @@ app.post('/api/transfers', authenticateToken, async (req, res) => {
       ]
     );
     
+    // Log audit event
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'transfer_created',
+      resource_type: 'transfer',
+      resource_id: result.rows[0].id,
+      resource_name: `${sourceRemote}:${sourcePath} → ${destRemote}:${destPath}`,
+      details: { operation, scheduled: schedule && schedule.enabled },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    
     // If not scheduled, start immediately
     if (!schedule || !schedule.enabled) {
       await startTransfer(result.rows[0], req.user.id);
@@ -710,22 +1220,65 @@ app.post('/api/transfers', authenticateToken, async (req, res) => {
 
 app.delete('/api/transfers/:id', authenticateToken, async (req, res) => {
   try {
+    // Get transfer details and check ownership
+    const transferCheck = await pool.query(
+      'SELECT * FROM transfers WHERE transfer_id = $1',
+      [req.params.id]
+    );
+    
+    if (transferCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Transfer not found' });
+    }
+    
+    const transfer = transferCheck.rows[0];
+    const permissions = await getUserPermissions(req.user.id);
+    
+    // Check if user can delete this transfer
+    const isOwner = transfer.user_id === req.user.id;
+    const canDelete = permissions.can_delete_any_transfers || 
+                      (isOwner && permissions.can_delete_own_transfers);
+    
+    if (!canDelete) {
+      await logAudit({
+        user_id: req.user.id,
+        username: req.user.username,
+        action: 'transfer_delete_denied',
+        resource_type: 'transfer',
+        resource_id: transfer.id,
+        details: { reason: 'no_delete_permission', is_owner: isOwner },
+        ip_address: req.ip
+      });
+      return res.status(403).json({ error: 'You do not have permission to delete transfers' });
+    }
+    
     // Check if transfer is running
-    const transfer = activeTransfers.get(req.params.id);
-    if (transfer && transfer.process) {
+    const activeTransfer = activeTransfers.get(req.params.id);
+    if (activeTransfer && activeTransfer.process) {
       console.log(`Killing running transfer: ${req.params.id}`);
-      transfer.process.kill('SIGTERM');
+      activeTransfer.process.kill('SIGTERM');
       activeTransfers.delete(req.params.id);
       
       // Update database status
       await pool.query(
-        'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3 AND user_id = $4',
-        ['cancelled', 'Transfer cancelled by user', req.params.id, req.user.id]
+        'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3',
+        ['cancelled', 'Transfer cancelled by user', req.params.id]
       );
     } else {
       // Just delete from database
-      await pool.query('DELETE FROM transfers WHERE transfer_id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+      await pool.query('DELETE FROM transfers WHERE transfer_id = $1', [req.params.id]);
     }
+    
+    // Log audit event
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'transfer_deleted',
+      resource_type: 'transfer',
+      resource_id: transfer.id,
+      resource_name: `${transfer.source_remote}:${transfer.source_path} → ${transfer.dest_remote}:${transfer.dest_path}`,
+      details: { was_running: !!activeTransfer },
+      ip_address: req.ip
+    });
     
     res.json({ success: true });
   } catch (error) {
@@ -788,7 +1341,7 @@ app.get('/api/notifications/settings', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/notifications/settings', authenticateToken, async (req, res) => {
+app.post('/api/notifications/settings', authenticateToken, requirePermission('can_manage_settings'), async (req, res) => {
   try {
     const { email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, smtp_pass, notify_on_failure, notify_on_success, daily_report } = req.body;
     
@@ -814,6 +1367,19 @@ app.post('/api/notifications/settings', authenticateToken, async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `, [req.user.id, email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, encryptedPass, notify_on_failure, notify_on_success, daily_report]);
+    
+    // Log audit event
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'smtp_configured',
+      resource_type: 'settings',
+      resource_id: null,
+      resource_name: 'SMTP',
+      details: { smtp_host, smtp_port, email_enabled },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
     
     // Don't return encrypted password to client
     const settings = { ...result.rows[0] };
@@ -854,12 +1420,21 @@ app.post('/api/notifications/test', authenticateToken, async (req, res) => {
 app.get('/api/providers', (req, res) => {
   res.json({
     providers: [
-      { id: 's3', name: 'Amazon S3 / Cloudflare R2', type: 's3', fields: [
-        { name: 'provider', label: 'Provider', type: 'select', options: ['AWS', 'Cloudflare', 'Wasabi', 'Other'], required: true },
+      { id: 's3', name: 'Amazon S3', type: 's3', fields: [
+        { name: 'provider', label: 'Provider', type: 'select', options: ['AWS', 'Wasabi', 'Other'], required: true },
         { name: 'access_key_id', label: 'Access Key ID', type: 'text', required: true },
         { name: 'secret_access_key', label: 'Secret Access Key', type: 'password', required: true },
         { name: 'region', label: 'Region', type: 'text', placeholder: 'us-east-1', required: false },
         { name: 'endpoint', label: 'Endpoint URL', type: 'text', placeholder: 'https://...', required: false },
+      ]},
+      { id: 'r2', name: 'Cloudflare R2', type: 's3', fields: [
+        { name: 'provider', label: 'Provider', type: 'hidden', default: 'Cloudflare', required: true },
+        { name: 'access_key_id', label: 'Access Key ID', type: 'text', required: true },
+        { name: 'secret_access_key', label: 'Secret Access Key', type: 'password', required: true },
+        { name: 'endpoint', label: 'Account Endpoint', type: 'text', placeholder: 'https://<account-id>.r2.cloudflarestorage.com', required: true },
+        { name: 'test_bucket', label: 'Bucket Name (for testing)', type: 'text', placeholder: 'my-bucket (leave blank if token has Admin access)', required: false },
+        { name: 'region', label: 'Region', type: 'hidden', default: 'auto', required: false },
+        { name: 'acl', label: 'ACL', type: 'hidden', default: 'private', required: false },
       ]},
       { id: 'b2', name: 'Backblaze B2 (Native API)', type: 'b2', fields: [
         { name: 'account', label: 'Account ID or Application Key ID', type: 'text', required: true },
@@ -885,8 +1460,10 @@ app.get('/api/providers', (req, res) => {
         { name: 'token', label: 'Access Token', type: 'password', required: true },
       ]},
       { id: 'gdrive', name: 'Google Drive', type: 'drive', fields: [
-        { name: 'client_id', label: 'Client ID', type: 'text', required: true },
-        { name: 'client_secret', label: 'Client Secret', type: 'password', required: true },
+        { name: 'client_id', label: 'Client ID', type: 'text', required: false },
+        { name: 'client_secret', label: 'Client Secret', type: 'password', required: false },
+        { name: 'token', label: 'Token (JSON from rclone config)', type: 'textarea', placeholder: '{"access_token":"...","token_type":"Bearer",...}', required: true },
+        { name: 'root_folder_id', label: 'Root Folder ID (optional)', type: 'text', placeholder: 'Leave blank for root', required: false },
       ]},
       { id: 'sftp', name: 'SFTP', type: 'sftp', fields: [
         { name: 'host', label: 'Host', type: 'text', placeholder: 'example.com', required: true },
@@ -1004,19 +1581,19 @@ async function startTransfer(transfer, userId) {
     `${transfer.source_remote}:${transfer.source_path}`,
     `${transfer.dest_remote}:${transfer.dest_path}`,
     '--config', configFile,
-    '--progress',
-    '--stats', '1s',
-    '--stats-one-line',
+    '--stats', '1s',         // Stats every second
+    '--stats-log-level', 'NOTICE',  // Show transfer details
     '--retries', '3',
     '--low-level-retries', '10',
     '--transfers', '4',
     '--checkers', '8',
     '--buffer-size', '16M',
+    '-v',                    // Verbose to see what's happening
   ];
   
   // Get remote types to add type-specific flags
   const remotes = await pool.query(
-    'SELECT name, type FROM remotes WHERE user_id = $1 AND (name = $2 OR name = $3)',
+    'SELECT name, type, config FROM remotes WHERE user_id = $1 AND (name = $2 OR name = $3)',
     [userId, transfer.source_remote, transfer.dest_remote]
   );
   
@@ -1026,6 +1603,16 @@ async function startTransfer(transfer, userId) {
     args.push('--sftp-skip-links');
     args.push('--sftp-set-modtime=false');
     args.push('--ignore-checksum');
+  }
+  
+  // Add S3-specific flags for R2 (no bucket creation)
+  const hasR2 = remotes.rows.some(r => {
+    if (r.type !== 's3') return false;
+    const config = r.config;
+    return config.endpoint && config.endpoint.includes('r2.cloudflarestorage.com');
+  });
+  if (hasR2) {
+    args.push('--s3-no-check-bucket');
   }
   
   const rclone = spawn('rclone', args);
@@ -1048,7 +1635,7 @@ async function startTransfer(transfer, userId) {
   let bytesTransferred = 0;
   let hasSeenProgress = false;
   
-  console.log(`[${transfer.transfer_id}] Transfer started`);
+  console.log(`[${transfer.transfer_id}] Transfer started with args:`, args.join(' '));
   
   // Check for stalled transfers every 5 seconds
   const timeoutCheck = setInterval(() => {
@@ -1064,79 +1651,122 @@ async function startTransfer(transfer, userId) {
       };
       pool.query('UPDATE transfers SET progress = $1 WHERE transfer_id = $2', [scanProgress, transfer.transfer_id]);
       broadcast({ type: 'transfer_progress', transferId: transfer.transfer_id, progress: scanProgress });
-      console.log(`[${transfer.transfer_id}] Still waiting for rclone output...`);
+      console.log(`[${transfer.transfer_id}] Still scanning...`);
+    }
+    
+    // Shorter timeout if we've seen checking activity but no real progress (likely all skipped)
+    if (hasSeenProgress && lastProgress.transferred === 'Checking files...' && timeSinceUpdate > 60000) {
+      console.log(`[${transfer.transfer_id}] ⚠️ Stuck in checking state for 60s, killing process`);
+      
+      // Mark as failed due to timeout
+      pool.query(
+        'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3',
+        ['failed', 'Transfer timed out while checking files. This may indicate an rclone issue.', transfer.transfer_id]
+      ).then(() => {
+        broadcast({ type: 'transfer_failed', transferId: transfer.transfer_id, error: 'Timed out while checking' });
+      });
+      
+      rclone.kill('SIGTERM');
+      setTimeout(() => rclone.kill('SIGKILL'), 5000); // Force kill after 5s if still alive
+      clearInterval(timeoutCheck);
     }
     
     // Timeout after 2 hours of no activity
     if (timeSinceUpdate > 7200000) {
       console.log(`[${transfer.transfer_id}] Timed out after 2 hours of inactivity`);
-      rclone.kill();
+      
+      // Mark as failed due to timeout
+      pool.query(
+        'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3',
+        ['failed', 'Transfer timed out after 2 hours of inactivity', transfer.transfer_id]
+      ).then(() => {
+        broadcast({ type: 'transfer_failed', transferId: transfer.transfer_id, error: 'Timed out' });
+      });
+      
+      rclone.kill('SIGTERM');
+      setTimeout(() => rclone.kill('SIGKILL'), 5000);
       clearInterval(timeoutCheck);
     }
   }, 5000);
   
+  console.log(`[${transfer.transfer_id}] Starting rclone process...`);
+  
+  let statsBuffer = '';  // Buffer for multi-line stats
+  
   rclone.stderr.on('data', (data) => {
     const output = data.toString();
     errorOutput += output;
+    statsBuffer += output;
     lastUpdateTime = Date.now();
     
-    // Log ALL rclone output for debugging
-    console.log(`[${transfer.transfer_id}] rclone stderr:`, output.trim());
+    // Parse stats - rclone outputs multi-line stats every second
+    // Look for the stats block that starts with "Transferred:"
+    const statsMatch = statsBuffer.match(/Transferred:\s+([^,]+),\s*(\d+)%/);
+    const speedMatch = statsBuffer.match(/([\d.]+\s*[KMGT]?i?Bytes\/s)/);
+    const etaMatch = statsBuffer.match(/ETA\s+([^\n]+)/);
     
-    // Parse transferred bytes/size
-    const transferredMatch = output.match(/Transferred:\s+([^,]+),\s+(\d+)%/);
-    const speedMatch = output.match(/(\d+\.?\d*\s*\w+\/s)/);
-    const etaMatch = output.match(/ETA\s+(\S+)/);
-    const bytesMatch = output.match(/Transferred:\s+(\d+\.?\d*)\s*(\w+)/);
+    // Check for file transfer activity
+    const transferringMatch = output.match(/Transferring:\s*\n\s*\*\s*(.+?):\s*(\d+)%/);
     
-    // Check for "Checking:" or "Transferring:" activity
-    if (output.includes('Checking:') || output.includes('Transferring:')) {
+    // Check for checking/skipped files (always output by rclone)
+    const checkingMatch = output.match(/Checking:|Checks:/);
+    const skippedMatch = output.match(/Skipped|Not copying|Identical/);
+    
+    // If we see checking or transferred stats, we've made progress
+    if (checkingMatch || statsMatch || transferringMatch) {
       hasSeenProgress = true;
-      const activityMatch = output.match(/(?:Checking|Transferring):\s*(.+)/);
-      if (activityMatch && !transferredMatch) {
-        const actProgress = {
-          transferred: 'Processing...',
-          percentage: 0,
-          speed: activityMatch[1].trim().substring(0, 50),
-          eta: 'Scanning...'
-        };
-        pool.query('UPDATE transfers SET progress = $1 WHERE transfer_id = $2', [actProgress, transfer.transfer_id]);
-        broadcast({ type: 'transfer_progress', transferId: transfer.transfer_id, progress: actProgress });
-      }
     }
     
-    // Parse byte count for display
-    if (bytesMatch) {
-      const value = parseFloat(bytesMatch[1]);
-      const unit = bytesMatch[2].toLowerCase();
-      const multipliers = { 
-        'b': 1, 'bytes': 1,
-        'kb': 1024, 'kib': 1024,
-        'mb': 1024*1024, 'mib': 1024*1024,
-        'gb': 1024*1024*1024, 'gib': 1024*1024*1024,
-        'tb': 1024*1024*1024*1024, 'tib': 1024*1024*1024*1024
-      };
-      bytesTransferred = Math.floor(value * (multipliers[unit] || 1));
-    }
-    
-    // Update progress if we have any stats
-    if (transferredMatch || speedMatch || etaMatch) {
-      hasSeenProgress = true;
+    if (statsMatch) {
+      const percentage = parseInt(statsMatch[2]);
+      
       const progress = {
-        transferred: transferredMatch ? transferredMatch[1].trim() : (lastProgress.transferred || '0 B'),
-        percentage: transferredMatch ? parseInt(transferredMatch[2]) : (lastProgress.percentage || 0),
-        speed: speedMatch ? speedMatch[1] : (lastProgress.speed || '0 B/s'),
-        eta: etaMatch ? etaMatch[1] : (lastProgress.eta || 'calculating...'),
-        bytes: bytesTransferred
+        transferred: statsMatch[1].trim(),
+        percentage: percentage,
+        speed: speedMatch ? speedMatch[1].replace('Bytes', 'B') : 'calculating...',
+        eta: etaMatch ? etaMatch[1].trim() : 'calculating...'
       };
-      lastProgress = progress;
-      pool.query('UPDATE transfers SET progress = $1 WHERE transfer_id = $2', [progress, transfer.transfer_id]);
-      broadcast({ type: 'transfer_progress', transferId: transfer.transfer_id, progress });
-      console.log(`[${transfer.transfer_id}] Progress: ${progress.transferred} (${progress.percentage}%) @ ${progress.speed}`);
+      
+      // Update if percentage changed
+      if (progress.percentage !== lastProgress.percentage) {
+        lastProgress = progress;
+        pool.query('UPDATE transfers SET progress = $1 WHERE transfer_id = $2', [progress, transfer.transfer_id]);
+        broadcast({ type: 'transfer_progress', transferId: transfer.transfer_id, progress });
+        console.log(`[${transfer.transfer_id}] Progress: ${progress.percentage}% @ ${progress.speed}, ETA ${progress.eta}`);
+      }
+      
+      // Clear buffer after parsing
+      statsBuffer = '';
+    }
+    
+    // Show active file being transferred
+    if (transferringMatch) {
+      console.log(`[${transfer.transfer_id}] Transferring: ${transferringMatch[1]} - ${transferringMatch[2]}%`);
+    }
+    
+    // Detect skipped files - update progress to show checking
+    if (skippedMatch || checkingMatch) {
+      if (!hasSeenProgress || lastProgress.percentage === 0) {
+        const checkProgress = {
+          transferred: 'Checking files...',
+          percentage: 0,
+          speed: 'Verifying...',
+          eta: 'Almost done...'
+        };
+        lastProgress = checkProgress;
+        pool.query('UPDATE transfers SET progress = $1 WHERE transfer_id = $2', [checkProgress, transfer.transfer_id]);
+        broadcast({ type: 'transfer_progress', transferId: transfer.transfer_id, progress: checkProgress });
+      }
+      console.log(`[${transfer.transfer_id}] Checking/skipping files`);
+    }
+    
+    // Clear buffer if it gets too large
+    if (statsBuffer.length > 2000) {
+      statsBuffer = '';
     }
     
     // Log errors
-    if (output.includes('ERROR') || output.includes('Failed')) {
+    if (output.toLowerCase().includes('error') && !output.includes('Errors:')) {
       console.error(`[${transfer.transfer_id}] ERROR:`, output.substring(0, 200));
     }
   });
@@ -1144,19 +1774,54 @@ async function startTransfer(transfer, userId) {
   rclone.stdout.on('data', (data) => {
     stdOutput += data.toString();
     lastUpdateTime = Date.now();
-    console.log(`[${transfer.transfer_id}] rclone stdout:`, data.toString().trim());
+    const output = data.toString();
+    console.log(`[${transfer.transfer_id}] STDOUT RAW:`, output);
   });
   
   rclone.on('close', async (code) => {
+    console.log(`[${transfer.transfer_id}] Rclone process closed with code ${code}`);
     clearInterval(timeoutCheck);
     activeTransfers.delete(transfer.transfer_id);
     
+    // Parse final stats from rclone output
+    const checksMatch = errorOutput.match(/Checks:\s+(\d+)\s*\/\s*(\d+)/);
+    const transferredMatch = errorOutput.match(/Transferred:\s+(\d+)\s*\/\s*(\d+)/);
+    const bytesMatch = errorOutput.match(/Transferred:\s+([\d.]+\s*[KMGT]?i?B)\s*\/\s*([\d.]+\s*[KMGT]?i?B)/);
+    
+    let filesTransferred = 0;
+    let filesChecked = 0;
+    let totalBytes = '';
+    
+    if (transferredMatch) {
+      filesTransferred = parseInt(transferredMatch[1]);
+    }
+    if (checksMatch) {
+      filesChecked = parseInt(checksMatch[2]);
+    }
+    if (bytesMatch) {
+      totalBytes = bytesMatch[2];
+    }
+    
+    // Check if all files were skipped (0 transferred, but files were checked)
+    const allSkipped = filesTransferred === 0 && filesChecked > 0;
+    
     if (code === 0) {
+      let completionNote = '';
+      if (allSkipped) {
+        completionNote = `${filesChecked} file(s) already exist and match - skipped`;
+      } else if (filesTransferred > 0) {
+        completionNote = `${filesTransferred} file(s) transferred${totalBytes ? ' (' + totalBytes + ')' : ''}`;
+      } else {
+        completionNote = 'Completed successfully';
+      }
+      
+      // Clear progress - transfer is done
       await pool.query(
-        'UPDATE transfers SET status = $1, completed_at = CURRENT_TIMESTAMP WHERE transfer_id = $2',
-        ['completed', transfer.transfer_id]
+        'UPDATE transfers SET status = $1, completed_at = CURRENT_TIMESTAMP, error = $2, progress = NULL WHERE transfer_id = $3',
+        ['completed', completionNote, transfer.transfer_id]
       );
-      broadcast({ type: 'transfer_complete', transferId: transfer.transfer_id });
+      broadcast({ type: 'transfer_complete', transferId: transfer.transfer_id, note: completionNote });
+      console.log(`[${transfer.transfer_id}] ✅ Completed: ${completionNote}`);
       await notifyTransferComplete(transfer, userId, true);
     } else {
       let errorMessage = `Transfer failed (exit code ${code})`;
@@ -1301,6 +1966,7 @@ async function initDatabase() {
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) UNIQUE NOT NULL,
         description TEXT,
+        permissions JSONB DEFAULT '{"role": "operator", "can_create_copy": true, "can_create_sync": false, "can_edit_transfers": false, "can_delete_own_transfers": false, "can_delete_any_transfers": false, "can_manage_remotes": false, "can_manage_settings": false, "can_manage_users": false}',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       
@@ -1316,6 +1982,24 @@ async function initDatabase() {
         reset_token_expires TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        username VARCHAR(255) NOT NULL,
+        action VARCHAR(100) NOT NULL,
+        resource_type VARCHAR(50) NOT NULL,
+        resource_id INTEGER,
+        resource_name VARCHAR(255),
+        details JSONB,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
       
       CREATE TABLE IF NOT EXISTS remotes (
         id SERIAL PRIMARY KEY,

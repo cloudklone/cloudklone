@@ -513,9 +513,10 @@
                 <div class="nav-item active" onclick="showTab('transfers')">Transfers</div>
                 <div class="nav-item" onclick="showTab('history')">History</div>
                 <div class="nav-item" onclick="showTab('scheduled')">Scheduled</div>
-                <div class="nav-item" onclick="showTab('remotes')">Remotes</div>
-                <div class="nav-item" onclick="showTab('settings')">Settings</div>
+                <div id="remotes-nav" class="nav-item" onclick="showTab('remotes')">Remotes</div>
+                <div id="settings-nav" class="nav-item" onclick="showTab('settings')">Settings</div>
                 <div id="admin-nav" class="nav-item hidden" onclick="showTab('admin')">Admin</div>
+                <div class="nav-item" onclick="showTab('logs')">Logs</div>
             </nav>
             <div class="sidebar-footer">
                 <button class="btn btn-secondary btn-small" onclick="logout()" style="width: 100%;">Logout</button>
@@ -698,6 +699,50 @@
                 </div>
             </div>
 
+            <!-- Logs Tab -->
+            <div id="tab-logs" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>Audit Logs</h2>
+                    <p>Activity history for transparency and accountability</p>
+                </div>
+                <div class="content-body">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Activity Logs</h3>
+                            <div style="display: flex; gap: 1rem;">
+                                <select id="logs-action-filter" onchange="loadLogs()" style="width: 180px;">
+                                    <option value="">All Actions</option>
+                                    <option value="login_success">Logins</option>
+                                    <option value="transfer_created">Transfers Created</option>
+                                    <option value="transfer_deleted">Transfers Deleted</option>
+                                    <option value="remote_created">Remotes Created</option>
+                                    <option value="remote_updated">Remotes Updated</option>
+                                    <option value="remote_deleted">Remotes Deleted</option>
+                                    <option value="smtp_configured">SMTP Configured</option>
+                                    <option value="permission_denied">Permission Denied</option>
+                                </select>
+                                <select id="logs-resource-filter" onchange="loadLogs()" style="width: 150px;">
+                                    <option value="">All Resources</option>
+                                    <option value="transfer">Transfers</option>
+                                    <option value="remote">Remotes</option>
+                                    <option value="auth">Authentication</option>
+                                    <option value="settings">Settings</option>
+                                    <option value="user">Users</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="logs-list" style="max-height: 600px; overflow-y: auto;"></div>
+                            <div style="margin-top: 1rem; display: flex; justify-content: center; gap: 1rem;">
+                                <button id="logs-prev" class="btn btn-secondary btn-small" onclick="loadLogsPage(-1)" disabled>Previous</button>
+                                <span id="logs-page-info" style="color: var(--text-secondary); line-height: 32px;">Page 1</span>
+                                <button id="logs-next" class="btn btn-secondary btn-small" onclick="loadLogsPage(1)">Next</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Remotes Tab -->
             <div id="tab-remotes" class="tab-content hidden">
                 <div class="content-header">
@@ -705,7 +750,7 @@
                     <p>Manage cloud storage connections</p>
                 </div>
                 <div class="content-body">
-                    <div class="card">
+                    <div id="add-remote-section" class="card">
                         <div class="card-header">
                             <div class="card-title">Add Remote</div>
                         </div>
@@ -922,6 +967,17 @@
                                 <label>Description</label>
                                 <input type="text" id="new-group-desc" placeholder="Engineering team members">
                             </div>
+                            <div class="form-group">
+                                <label>Role / Permissions</label>
+                                <select id="new-group-role" onchange="updateRoleDescription()">
+                                    <option value="read_only">Read-Only (View only)</option>
+                                    <option value="operator" selected>Operator (Create copy transfers only)</option>
+                                    <option value="power_user">Power User (Create sync, manage remotes)</option>
+                                </select>
+                                <small id="role-description" style="color: var(--text-tertiary); font-size: 11px; display: block; margin-top: 0.5rem;">
+                                    Can view everything and create copy transfers. Cannot create sync transfers or delete transfers.
+                                </small>
+                            </div>
                             <div style="display: flex; gap: 0.5rem;">
                                 <button class="btn btn-small" onclick="createGroup()">Create</button>
                                 <button class="btn btn-secondary btn-small" onclick="hideCreateGroup()">Cancel</button>
@@ -956,6 +1012,7 @@
         let token = localStorage.getItem('token');
         let ws = null;
         let currentTab = 'transfers';
+        let userPermissions = null; // Store user permissions
 
         if (token) showApp();
 
@@ -1005,13 +1062,70 @@
                 }
             }
             
+            // Load user permissions and apply UI restrictions
+            loadPermissions();
+            
             loadProviders();
             loadRemotes();
             loadTransfers();
             loadHistory();
             loadSettings();
+            loadLogs();
             connectWebSocket();
             setInterval(loadTransfers, 5000);
+        }
+
+        async function loadPermissions() {
+            try {
+                const res = await fetch(`${API_BASE}/auth/permissions`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                userPermissions = data.permissions;
+                
+                console.log('User permissions:', userPermissions);
+                
+                // Apply UI restrictions based on permissions
+                applyPermissionRestrictions();
+            } catch (err) {
+                console.error('Failed to load permissions:', err);
+                // Default to operator permissions for safety
+                userPermissions = {
+                    role: 'operator',
+                    can_create_copy: true,
+                    can_create_sync: false,
+                    can_delete_own_transfers: false,
+                    can_manage_remotes: false,
+                    can_manage_settings: false
+                };
+                applyPermissionRestrictions();
+            }
+        }
+
+        function applyPermissionRestrictions() {
+            if (!userPermissions) return;
+            
+            // Hide Remotes tab if can't manage remotes
+            if (!userPermissions.can_manage_remotes) {
+                const remotesNav = document.getElementById('remotes-nav');
+                if (remotesNav) remotesNav.classList.add('hidden');
+                
+                // Hide the "Add Remote" section too
+                const addRemoteSection = document.getElementById('add-remote-section');
+                if (addRemoteSection) addRemoteSection.style.display = 'none';
+            }
+            
+            // Hide Settings tab if can't manage settings
+            if (!userPermissions.can_manage_settings) {
+                const settingsNav = document.getElementById('settings-nav');
+                if (settingsNav) settingsNav.classList.add('hidden');
+            }
+            
+            // Hide sync operation option if can't create sync
+            if (!userPermissions.can_create_sync) {
+                const syncOption = document.querySelector('option[value="sync"]');
+                if (syncOption) syncOption.style.display = 'none';
+            }
         }
 
         function showTab(tab) {
@@ -1023,6 +1137,7 @@
             
             if (tab === 'history') loadHistory();
             if (tab === 'scheduled') loadScheduled();
+            if (tab === 'logs') loadLogs();
             if (tab === 'admin') {
                 loadUsers();
                 loadGroups();
@@ -1102,17 +1217,29 @@
                     return;
                 }
                 
-                list.innerHTML = data.groups.map(g => `
+                list.innerHTML = data.groups.map(g => {
+                    const role = g.permissions?.role || 'operator';
+                    const roleLabels = {
+                        'read_only': '👁️ Read-Only',
+                        'operator': '⚙️ Operator',
+                        'power_user': '⚡ Power User'
+                    };
+                    const roleLabel = roleLabels[role] || role;
+                    
+                    return `
                     <div class="remote-item">
                         <div class="remote-info">
                             <h4>${g.name}</h4>
                             <p>${g.description || 'No description'}</p>
+                            <div style="margin-top: 0.5rem;">
+                                <span style="display: inline-block; padding: 0.25rem 0.75rem; background: var(--bg-tertiary); border-radius: 12px; font-size: 11px; color: var(--text-secondary);">${roleLabel}</span>
+                            </div>
                         </div>
                         <div class="remote-actions">
                             <button class="btn btn-danger btn-small" onclick="deleteGroup(${g.id}, '${g.name}')">Delete</button>
                         </div>
                     </div>
-                `).join('');
+                `}).join('');
             } catch (err) {
                 console.error('Failed to load groups:', err);
             }
@@ -1217,9 +1344,13 @@
         async function updateUser() {
             const userId = document.getElementById('edit-user-id').value;
             const email = document.getElementById('edit-email').value;
-            const groupId = document.getElementById('edit-user-group').value || null;
+            const groupIdValue = document.getElementById('edit-user-group').value;
+            const groupId = groupIdValue === '' ? null : parseInt(groupIdValue);
             const role = document.getElementById('edit-user-role').value;
             const password = document.getElementById('edit-password').value;
+            
+            console.log('Raw values:', { userId, email, groupIdValue, role, password });
+            console.log('Parsed groupId:', groupId, typeof groupId);
             
             if (!email) {
                 alert('Email is required');
@@ -1238,6 +1369,8 @@
                     updates.password = password;
                 }
                 
+                console.log('Sending update:', JSON.stringify(updates, null, 2));
+                
                 const res = await fetch(`${API_BASE}/users/${userId}`, {
                     method: 'PUT',
                     headers: {
@@ -1248,15 +1381,18 @@
                 });
                 
                 const data = await res.json();
+                console.log('Server response:', data);
                 
                 if (res.ok) {
                     hideEditUser();
                     loadUsers();
                     alert('✅ User updated successfully!');
                 } else {
+                    console.error('Update user error:', data);
                     alert('❌ ' + (data.error || 'Failed to update user'));
                 }
             } catch (err) {
+                console.error('Update user exception:', err);
                 alert('❌ Failed to update user: ' + err.message);
             }
         }
@@ -1271,14 +1407,71 @@
             document.getElementById('new-group-desc').value = '';
         }
 
+        function updateRoleDescription() {
+            const role = document.getElementById('new-group-role')?.value;
+            const desc = document.getElementById('role-description');
+            if (!desc) return;
+            
+            const descriptions = {
+                'read_only': 'Can only view transfers, remotes, history, and logs. Cannot create, edit, or delete anything.',
+                'operator': 'Can view everything and create copy transfers. Cannot create sync transfers or delete transfers.',
+                'power_user': 'Can create copy AND sync transfers, manage remotes, and delete own transfers. Cannot delete others\' transfers.'
+            };
+            
+            desc.textContent = descriptions[role] || '';
+        }
+
+        function getRolePermissions(role) {
+            const rolePermissions = {
+                'read_only': {
+                    role: 'read_only',
+                    can_create_copy: false,
+                    can_create_sync: false,
+                    can_edit_transfers: false,
+                    can_delete_own_transfers: false,
+                    can_delete_any_transfers: false,
+                    can_manage_remotes: false,
+                    can_manage_settings: false,
+                    can_manage_users: false
+                },
+                'operator': {
+                    role: 'operator',
+                    can_create_copy: true,
+                    can_create_sync: false,
+                    can_edit_transfers: false,
+                    can_delete_own_transfers: false,
+                    can_delete_any_transfers: false,
+                    can_manage_remotes: false,
+                    can_manage_settings: false,
+                    can_manage_users: false
+                },
+                'power_user': {
+                    role: 'power_user',
+                    can_create_copy: true,
+                    can_create_sync: true,
+                    can_edit_transfers: false,
+                    can_delete_own_transfers: true,
+                    can_delete_any_transfers: false,
+                    can_manage_remotes: true,
+                    can_manage_settings: false,
+                    can_manage_users: false
+                }
+            };
+            
+            return rolePermissions[role] || rolePermissions.operator;
+        }
+
         async function createGroup() {
             const name = document.getElementById('new-group-name').value;
             const description = document.getElementById('new-group-desc').value;
+            const role = document.getElementById('new-group-role').value;
             
             if (!name) {
                 alert('Please enter a group name');
                 return;
             }
+            
+            const permissions = getRolePermissions(role);
             
             try {
                 const res = await fetch(`${API_BASE}/groups`, {
@@ -1287,7 +1480,7 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ name, description })
+                    body: JSON.stringify({ name, description, permissions })
                 });
                 
                 const data = await res.json();
@@ -1295,7 +1488,7 @@
                 if (res.ok) {
                     hideCreateGroup();
                     loadGroups();
-                    alert('✅ Group created successfully!');
+                    alert(`✅ Group "${name}" created with ${role.replace('_', ' ')} permissions!`);
                 } else {
                     alert('❌ ' + (data.error || 'Failed to create group'));
                 }
@@ -1389,19 +1582,108 @@
             }
         }
 
+        // ==================== LOGS FUNCTIONS ====================
+        
+        let logsPage = 0;
+        const logsPageSize = 50;
+
+        async function loadLogs() {
+            try {
+                const actionFilter = document.getElementById('logs-action-filter')?.value || '';
+                const resourceFilter = document.getElementById('logs-resource-filter')?.value || '';
+                
+                const params = new URLSearchParams({
+                    limit: logsPageSize,
+                    offset: logsPage * logsPageSize
+                });
+                
+                if (actionFilter) params.append('action', actionFilter);
+                if (resourceFilter) params.append('resource_type', resourceFilter);
+                
+                const res = await fetch(`${API_BASE}/audit-logs?${params}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                const list = document.getElementById('logs-list');
+                if (!data.logs || data.logs.length === 0) {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><p>No audit logs</p><small style="color: var(--text-tertiary);">Activity will appear here</small></div>';
+                    return;
+                }
+                
+                list.innerHTML = data.logs.map(log => {
+                    const timestamp = new Date(log.timestamp).toLocaleString();
+                    const actionColor = getActionColor(log.action);
+                    const actionLabel = formatActionLabel(log.action);
+                    
+                    return `
+                    <div class="card" style="margin-bottom: 0.75rem; padding: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <span style="font-weight: 600; color: ${actionColor};">${actionLabel}</span>
+                                    <span style="color: var(--text-tertiary); font-size: 12px;">•</span>
+                                    <span style="color: var(--text-secondary); font-size: 13px;">${log.username}</span>
+                                    <span style="color: var(--text-tertiary); font-size: 12px;">•</span>
+                                    <span style="color: var(--text-tertiary); font-size: 12px;">${log.resource_type}</span>
+                                </div>
+                                ${log.resource_name ? `<div style="color: var(--text-secondary); font-size: 13px; margin-bottom: 0.25rem;">${log.resource_name}</div>` : ''}
+                                ${log.details && Object.keys(log.details).length > 0 ? `<div style="color: var(--text-tertiary); font-size: 12px; font-family: 'Courier New', monospace;">${JSON.stringify(log.details)}</div>` : ''}
+                            </div>
+                            <div style="text-align: right;">
+                                <div style="color: var(--text-tertiary); font-size: 11px;">${timestamp}</div>
+                                ${log.ip_address ? `<div style="color: var(--text-tertiary); font-size: 11px; margin-top: 0.25rem;">${log.ip_address}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+                
+                // Update pagination
+                document.getElementById('logs-page-info').textContent = `Page ${logsPage + 1}`;
+                document.getElementById('logs-prev').disabled = logsPage === 0;
+                document.getElementById('logs-next').disabled = data.logs.length < logsPageSize;
+            } catch (err) {
+                console.error('Failed to load logs:', err);
+            }
+        }
+
+        function loadLogsPage(direction) {
+            logsPage += direction;
+            if (logsPage < 0) logsPage = 0;
+            loadLogs();
+        }
+
+        function getActionColor(action) {
+            if (action.includes('success') || action.includes('created')) return 'var(--success)';
+            if (action.includes('failed') || action.includes('denied') || action.includes('deleted')) return 'var(--error)';
+            if (action.includes('updated') || action.includes('configured')) return 'var(--warning)';
+            return 'var(--text-primary)';
+        }
+
+        function formatActionLabel(action) {
+            return action
+                .split('_')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+        }
+
+        let providersData = null; // Store providers globally
+
         async function loadProviders() {
             try {
                 const res = await fetch(`${API_BASE}/providers`);
                 const data = await res.json();
+                providersData = data.providers; // Store for later use
                 
                 const select = document.getElementById('provider');
                 select.innerHTML = '<option value="">Select provider...</option>';
                 data.providers.forEach(p => {
-                    select.innerHTML += `<option value="${p.type}">${p.name}</option>`;
+                    select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
                 });
                 
                 select.addEventListener('change', (e) => {
-                    const provider = data.providers.find(p => p.type === e.target.value);
+                    const provider = data.providers.find(p => p.id === e.target.value);
                     if (!provider) {
                         document.getElementById('provider-config').innerHTML = '';
                         return;
@@ -1409,17 +1691,24 @@
                     
                     let html = '';
                     provider.fields.forEach(f => {
+                        // Skip hidden fields in UI but store them
+                        if (f.type === 'hidden') {
+                            html += `<input type="hidden" name="${f.name}" value="${f.default || ''}">`;
+                            return;
+                        }
+                        
                         html += `<div class="form-group">
                             <label>${f.label}${f.required ? ' *' : ''}</label>`;
                         
                         if (f.type === 'select') {
                             html += `<select name="${f.name}">`;
                             f.options.forEach(opt => {
-                                html += `<option value="${opt}">${opt}</option>`;
+                                const selected = f.default === opt ? 'selected' : '';
+                                html += `<option value="${opt}" ${selected}>${opt}</option>`;
                             });
                             html += `</select>`;
                         } else if (f.type === 'textarea') {
-                            html += `<textarea name="${f.name}" placeholder="${f.placeholder || ''}"></textarea>`;
+                            html += `<textarea name="${f.name}" placeholder="${f.placeholder || ''}">${f.default || ''}</textarea>`;
                         } else {
                             html += `<input type="${f.type}" name="${f.name}" placeholder="${f.placeholder || ''}" ${f.default ? `value="${f.default}"` : ''}>`;
                         }
@@ -1476,12 +1765,21 @@
 
         async function addRemote() {
             const name = document.getElementById('remote-name').value;
-            const type = document.getElementById('provider').value;
+            const providerId = document.getElementById('provider').value;
             
-            if (!name || !type) {
+            if (!name || !providerId) {
                 alert('Please fill in all required fields');
                 return;
             }
+            
+            // Find the selected provider to get its actual type
+            const selectedProvider = providersData.find(p => p.id === providerId);
+            if (!selectedProvider) {
+                alert('Invalid provider selected');
+                return;
+            }
+            
+            const type = selectedProvider.type; // Get the actual rclone type
             
             const config = {};
             document.querySelectorAll('#provider-config input, #provider-config select, #provider-config textarea').forEach(input => {
@@ -1494,6 +1792,8 @@
             btn.innerHTML = '<span class="spinner"></span> Validating connection...';
             
             try {
+                console.log('[addRemote] Creating remote:', { name, type, providerId, config });
+                
                 const response = await fetch(`${API_BASE}/remotes`, {
                     method: 'POST',
                     headers: {
@@ -1503,7 +1803,9 @@
                     body: JSON.stringify({ name, type, config })
                 });
                 
+                console.log('[addRemote] Response status:', response.status);
                 const data = await response.json();
+                console.log('[addRemote] Response data:', data);
                 
                 if (response.ok) {
                     document.getElementById('remote-name').value = '';
@@ -1512,10 +1814,33 @@
                     loadRemotes();
                     alert(data.message || '✅ Remote added successfully!');
                 } else {
-                    alert('❌ ' + (data.error || 'Failed to add remote') + (data.details ? '\n\nDetails: ' + data.details : ''));
+                    let errorMsg = '❌ Failed to add remote\n\n';
+                    
+                    if (response.status === 403) {
+                        errorMsg += 'Permission Denied: You do not have permission to manage remotes.\n\nContact an administrator to upgrade your role to Power User or Admin.';
+                    } else {
+                        errorMsg += (data.error || 'Unknown error');
+                        if (data.details) errorMsg += '\n\nDetails: ' + data.details;
+                    }
+                    
+                    alert(errorMsg);
                 }
             } catch (err) {
-                alert('❌ Connection error: ' + err.message);
+                console.error('[addRemote] Fetch error:', err);
+                
+                let errorMsg = '❌ Connection Error\n\n';
+                
+                if (err.message === 'Failed to fetch') {
+                    errorMsg += 'Cannot connect to server. Possible causes:\n\n';
+                    errorMsg += '• Backend container not running\n';
+                    errorMsg += '• Network connection interrupted\n';
+                    errorMsg += '• Browser blocked the request\n\n';
+                    errorMsg += 'Check: sudo docker-compose ps';
+                } else {
+                    errorMsg += err.message;
+                }
+                
+                alert(errorMsg);
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = originalText;
@@ -1562,7 +1887,11 @@
                     return;
                 }
                 
-                list.innerHTML = data.transfers.map(t => `
+                list.innerHTML = data.transfers.map(t => {
+                    // Check if user can delete this transfer
+                    const canDelete = userPermissions && (userPermissions.can_delete_any_transfers || userPermissions.can_delete_own_transfers);
+                    
+                    return `
                     <div class="transfer-item">
                         <div class="transfer-header">
                             <span class="transfer-status ${t.status}">${t.status}</span>
@@ -1571,7 +1900,7 @@
                                 ${t.status === 'running' || t.status === 'queued' ? `
                                     <button class="btn btn-danger btn-small" onclick="cancelTransfer('${t.transfer_id}')">Cancel</button>
                                 ` : ''}
-                                ${t.status === 'failed' || t.status === 'completed' ? `
+                                ${(t.status === 'failed' || t.status === 'completed') && canDelete ? `
                                     <button class="btn btn-secondary btn-small" onclick="deleteTransfer('${t.transfer_id}')">Delete</button>
                                 ` : ''}
                             </div>
@@ -1587,7 +1916,7 @@
                                 ${t.next_run ? '• Next run: ' + new Date(t.next_run).toLocaleString() : ''}
                             </div>
                         ` : ''}
-                        ${t.progress ? `
+                        ${(t.status === 'running' || t.status === 'queued') && t.progress ? `
                             <div class="progress-bar">
                                 <div class="progress-fill" style="width: ${t.progress.percentage || 0}%"></div>
                             </div>
@@ -1602,9 +1931,9 @@
                                 </div>
                             ` : ''}
                         ` : ''}
-                        ${t.error ? `<div class="transfer-error">${t.error}</div>` : ''}
+                        ${t.error ? `<div class="transfer-error" style="${t.status === 'completed' ? 'background: rgba(76, 175, 80, 0.1); color: var(--success); border-color: var(--success);' : ''}">${t.error}</div>` : ''}
                     </div>
-                `).join('');
+                `}).join('');
             } catch (err) {
                 console.error('Failed to load transfers:', err);
             }
@@ -1685,6 +2014,9 @@
                     const lastRun = t.last_run ? new Date(t.last_run).toLocaleString() : 'Never';
                     const scheduleType = t.schedule_type === 'recurring' ? `Recurring (${t.schedule_interval})` : 'One-time';
                     
+                    // Check if user can delete
+                    const canDelete = userPermissions && (userPermissions.can_delete_any_transfers || userPermissions.can_delete_own_transfers);
+                    
                     return `
                     <div class="card" style="margin-bottom: 1rem;">
                         <div class="transfer-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -1696,8 +2028,7 @@
                                 <button class="btn btn-${t.enabled ? 'secondary' : 'primary'} btn-small" onclick="toggleScheduledJob(${t.id}, ${!t.enabled})">
                                     ${t.enabled ? 'Disable' : 'Enable'}
                                 </button>
-                                <button class="btn btn-secondary btn-small" onclick="editScheduledJob(${t.id})">Edit</button>
-                                <button class="btn btn-danger btn-small" onclick="deleteScheduledJob(${t.id})">Delete</button>
+                                ${canDelete ? `<button class="btn btn-danger btn-small" onclick="deleteScheduledJob(${t.id})">Delete</button>` : ''}
                             </div>
                         </div>
                         <div class="transfer-path">
@@ -1790,7 +2121,16 @@
                         alert(`✅ Transfer scheduled successfully! ${schedule.type === 'once' ? 'Will run at specified time.' : 'Will run ' + schedule.interval + '.'}`);
                     }
                 } else {
-                    alert('❌ Failed to create transfer: ' + (data.error || 'Unknown error'));
+                    // Show user-friendly error messages
+                    if (response.status === 403) {
+                        if (data.error && data.error.includes('Sync operations')) {
+                            alert('❌ Permission Denied\n\nYou do not have permission to create sync transfers. Your role only allows copy operations.\n\nPlease select "copy" as the operation type or contact an administrator to upgrade your permissions.');
+                        } else {
+                            alert('❌ Permission Denied\n\n' + (data.error || 'You do not have permission to perform this action.'));
+                        }
+                    } else {
+                        alert('❌ Failed to create transfer: ' + (data.error || 'Unknown error'));
+                    }
                 }
             } catch (err) {
                 alert('❌ Failed to start transfer: ' + err.message);

@@ -33,7 +33,7 @@ services:
       - ./backend:/app
       - rclone_config:/root/.config/rclone
     ports:
-      - "80:3001"
+      - "0.0.0.0:80:3001"
     networks:
       - cloudklone-network
     depends_on:
