@@ -52,14 +52,16 @@ Remote Name: cloudflaretest
 
 Provider: Cloudflare R2
 
-Access Key ID: f109d798fcc1da0ac41f1f5bf2356522
+Access Key ID: <YOUR_R2_ACCESS_KEY_ID>
 
-Secret Access Key: ********** (your secret)
+Secret Access Key: <YOUR_R2_SECRET_ACCESS_KEY>
 
-Account Endpoint: https://8cea2d4699181fcc7b591d3e9f1ac367.r2.cloudflarestorage.com
+Account Endpoint: https://<YOUR_ACCOUNT_ID>.r2.cloudflarestorage.com
 
-Bucket Name (for testing): my-bucket-name  ← YOUR BUCKET NAME HERE
+Bucket Name (for testing): <YOUR_BUCKET_NAME>
 ```
+
+**Note:** Replace all values in `< >` with your actual R2 credentials. Find these in your Cloudflare R2 dashboard under API Tokens.
 
 3. **Click "Add Remote"**
 4. **Should see:** ✅ Connected successfully to bucket 'my-bucket-name'. Found X items. (Cloudflare R2)
@@ -100,10 +102,10 @@ Dest: other-remote:/destination
 ```
 Remote Name: my-r2
 Provider: Cloudflare R2
-Access Key ID: f109d798fcc1da0ac41f1f5bf2356522
-Secret Access Key: ********
-Account Endpoint: https://8cea2d4699181fcc7b591d3e9f1ac367.r2.cloudflarestorage.com
-Bucket Name: my-bucket  ← Bucket your token has access to
+Access Key ID: <YOUR_R2_ACCESS_KEY_ID>
+Secret Access Key: <YOUR_R2_SECRET_ACCESS_KEY>
+Account Endpoint: https://<YOUR_ACCOUNT_ID>.r2.cloudflarestorage.com
+Bucket Name: <YOUR_BUCKET_NAME>
 ```
 
 **Use in Transfers:**

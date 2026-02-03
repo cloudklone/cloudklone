@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CloudKlone - Cloud Storage Management</title>
+    <link rel="icon" type="image/png" href="/logo.png">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
@@ -20,8 +21,8 @@
             --text-primary: #e8e8e8;
             --text-secondary: #a0a0a0;
             --text-tertiary: #707070;
-            --accent-orange: #ff6b35;
-            --accent-orange-hover: #ff8555;
+            --accent-orange: #B497D6;
+            --accent-orange-hover: #C5AAE3;
             --border-color: #2a2a2a;
             --success: #10b981;
             --error: #ef4444;
@@ -55,8 +56,17 @@
         }
         
         .logo-container {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
             margin-bottom: 2rem;
+        }
+        
+        .logo-container img {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
         }
         
         .logo-container h1 {
@@ -85,8 +95,15 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            gap: 0.75rem;
             padding: 0 1.5rem 2rem;
             border-bottom: 1px solid var(--border-color);
+        }
+        
+        .sidebar-header img {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
         }
         
         .sidebar-header h1 {
@@ -487,6 +504,7 @@
     <div id="auth-section" class="auth-container">
         <div class="auth-card">
             <div class="logo-container">
+                <img src="/logo.png" alt="CloudKlone Logo">
                 <h1>CloudKlone</h1>
             </div>
             <div class="form-group">
@@ -507,6 +525,7 @@
         <!-- Sidebar -->
         <div class="sidebar">
             <div class="sidebar-header">
+                <img src="/logo.png" alt="CloudKlone Logo">
                 <h1>CloudKlone</h1>
             </div>
             <nav class="sidebar-nav">
@@ -529,7 +548,7 @@
             <div id="tab-transfers" class="tab-content">
                 <div class="content-header">
                     <h2>Transfers</h2>
-                    <p>Create and monitor cloud-to-cloud transfers</p>
+                    <p>Create and monitor cloud and local transfers</p>
                 </div>
                 <div class="content-body">
                     <div class="card">
@@ -703,7 +722,6 @@
             <div id="tab-logs" class="tab-content hidden">
                 <div class="content-header">
                     <h2>Audit Logs</h2>
-                    <p>Activity history for transparency and accountability</p>
                 </div>
                 <div class="content-body">
                     <div class="card">
@@ -861,7 +879,7 @@
                     <div class="card">
                         <div class="card-header">
                             <div class="card-title">Users</div>
-                            <button class="btn btn-small" onclick="showCreateUser()">Create User</button>
+                            <button id="create-user-btn" class="btn btn-small hidden" onclick="showCreateUser()">Create User</button>
                         </div>
                         
                         <!-- Create User Form (Hidden by default) -->
@@ -953,7 +971,7 @@
                     <div class="card">
                         <div class="card-header">
                             <div class="card-title">Groups</div>
-                            <button class="btn btn-small" onclick="showCreateGroup()">Create Group</button>
+                            <button id="create-group-btn" class="btn btn-small hidden" onclick="showCreateGroup()">Create Group</button>
                         </div>
                         
                         <!-- Create Group Form -->
@@ -1007,12 +1025,58 @@
         </div>
     </div>
 
+    <!-- Edit Scheduled Job Modal -->
+    <div id="edit-schedule-modal" class="hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+        <div style="background: var(--bg-secondary); border-radius: 12px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin: 0;">Edit Scheduled Transfer</h3>
+                <button onclick="closeEditScheduleModal()" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 24px; padding: 0; width: 32px; height: 32px;">&times;</button>
+            </div>
+            
+            <input type="hidden" id="edit-schedule-id">
+            
+            <div class="form-group">
+                <label>Schedule Type</label>
+                <select id="edit-schedule-type" onchange="toggleEditScheduleType()">
+                    <option value="once">One-time</option>
+                    <option value="recurring">Recurring</option>
+                </select>
+            </div>
+            
+            <div id="edit-schedule-once" class="form-group hidden">
+                <label>Date and Time</label>
+                <input type="datetime-local" id="edit-schedule-datetime">
+            </div>
+            
+            <div id="edit-schedule-recurring" class="form-group hidden">
+                <label>Frequency</label>
+                <select id="edit-schedule-interval">
+                    <option value="hourly">Hourly</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+            </div>
+            
+            <div id="edit-schedule-time-group" class="form-group hidden">
+                <label>Time</label>
+                <input type="time" id="edit-schedule-time" value="00:00">
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem; margin-top: 1.5rem;">
+                <button class="btn" onclick="saveScheduledJobEdit()" style="flex: 1;">Save Changes</button>
+                <button class="btn btn-secondary" onclick="closeEditScheduleModal()" style="flex: 1;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const API_BASE = '/api';
         let token = localStorage.getItem('token');
         let ws = null;
         let currentTab = 'transfers';
         let userPermissions = null; // Store user permissions
+        let isAdmin = false; // Store admin status
 
         if (token) showApp();
 
@@ -1057,8 +1121,14 @@
             const tokenParts = token.split('.');
             if (tokenParts.length === 3) {
                 const payload = JSON.parse(atob(tokenParts[1]));
-                if (payload.isAdmin) {
+                isAdmin = payload.isAdmin || false;
+                if (isAdmin) {
                     document.getElementById('admin-nav').classList.remove('hidden');
+                    // Show admin-only buttons
+                    const createUserBtn = document.getElementById('create-user-btn');
+                    const createGroupBtn = document.getElementById('create-group-btn');
+                    if (createUserBtn) createUserBtn.classList.remove('hidden');
+                    if (createGroupBtn) createGroupBtn.classList.remove('hidden');
                 }
             }
             
@@ -1186,10 +1256,12 @@
                             <h4>${u.username} ${u.is_admin ? '<span style="color: var(--accent-orange); font-size: 11px; font-weight: 600;">[ADMIN]</span>' : ''}</h4>
                             <p>${u.email} • Group: ${groupName} • Created ${new Date(u.created_at).toLocaleDateString()}</p>
                         </div>
+                        ${isAdmin ? `
                         <div class="remote-actions">
                             <button class="btn btn-secondary btn-small" onclick='showEditUser(${JSON.stringify(u)})'>Edit</button>
                             <button class="btn btn-danger btn-small" onclick="deleteUser(${u.id}, '${u.username}')">Delete</button>
                         </div>
+                        ` : ''}
                     </div>
                 `}).join('');
             } catch (err) {
@@ -1235,9 +1307,11 @@
                                 <span style="display: inline-block; padding: 0.25rem 0.75rem; background: var(--bg-tertiary); border-radius: 12px; font-size: 11px; color: var(--text-secondary);">${roleLabel}</span>
                             </div>
                         </div>
+                        ${isAdmin ? `
                         <div class="remote-actions">
                             <button class="btn btn-danger btn-small" onclick="deleteGroup(${g.id}, '${g.name}')">Delete</button>
                         </div>
+                        ` : ''}
                     </div>
                 `}).join('');
             } catch (err) {
@@ -1579,6 +1653,103 @@
                 }
             } catch (err) {
                 alert('❌ Failed to delete job');
+            }
+        }
+
+        function editScheduledJob(transfer) {
+            // Store transfer ID
+            document.getElementById('edit-schedule-id').value = transfer.id;
+            
+            // Set schedule type
+            document.getElementById('edit-schedule-type').value = transfer.schedule_type;
+            
+            // Show appropriate fields
+            if (transfer.schedule_type === 'once') {
+                // Format scheduled_for for datetime-local input
+                if (transfer.scheduled_for) {
+                    const date = new Date(transfer.scheduled_for);
+                    const formatted = date.toISOString().slice(0, 16);
+                    document.getElementById('edit-schedule-datetime').value = formatted;
+                }
+                document.getElementById('edit-schedule-once').classList.remove('hidden');
+                document.getElementById('edit-schedule-recurring').classList.add('hidden');
+                document.getElementById('edit-schedule-time-group').classList.add('hidden');
+            } else {
+                // Recurring
+                document.getElementById('edit-schedule-interval').value = transfer.schedule_interval || 'daily';
+                
+                // Use stored schedule_time if available, otherwise default to 00:00
+                const time = transfer.schedule_time || '00:00';
+                document.getElementById('edit-schedule-time').value = time;
+                
+                document.getElementById('edit-schedule-once').classList.add('hidden');
+                document.getElementById('edit-schedule-recurring').classList.remove('hidden');
+                document.getElementById('edit-schedule-time-group').classList.remove('hidden');
+            }
+            
+            // Show modal
+            document.getElementById('edit-schedule-modal').classList.remove('hidden');
+        }
+
+        function toggleEditScheduleType() {
+            const type = document.getElementById('edit-schedule-type').value;
+            if (type === 'once') {
+                document.getElementById('edit-schedule-once').classList.remove('hidden');
+                document.getElementById('edit-schedule-recurring').classList.add('hidden');
+                document.getElementById('edit-schedule-time-group').classList.add('hidden');
+            } else {
+                document.getElementById('edit-schedule-once').classList.add('hidden');
+                document.getElementById('edit-schedule-recurring').classList.remove('hidden');
+                document.getElementById('edit-schedule-time-group').classList.remove('hidden');
+            }
+        }
+
+        function closeEditScheduleModal() {
+            document.getElementById('edit-schedule-modal').classList.add('hidden');
+        }
+
+        async function saveScheduledJobEdit() {
+            const id = document.getElementById('edit-schedule-id').value;
+            const type = document.getElementById('edit-schedule-type').value;
+            
+            const schedule = {
+                enabled: true,
+                type: type
+            };
+            
+            if (type === 'once') {
+                const datetime = document.getElementById('edit-schedule-datetime').value;
+                if (!datetime) {
+                    alert('Please select a date and time');
+                    return;
+                }
+                schedule.datetime = datetime;
+            } else {
+                schedule.interval = document.getElementById('edit-schedule-interval').value;
+                schedule.time = document.getElementById('edit-schedule-time').value;
+                schedule.timezoneOffset = new Date().getTimezoneOffset();
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/transfers/${id}/schedule`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ schedule })
+                });
+                
+                if (res.ok) {
+                    closeEditScheduleModal();
+                    loadScheduled();
+                    alert('✅ Schedule updated successfully');
+                } else {
+                    const data = await res.json();
+                    alert('❌ ' + (data.error || 'Failed to update schedule'));
+                }
+            } catch (err) {
+                alert('❌ Failed to update schedule');
             }
         }
 
@@ -1931,7 +2102,7 @@
                                 </div>
                             ` : ''}
                         ` : ''}
-                        ${t.error ? `<div class="transfer-error" style="${t.status === 'completed' ? 'background: rgba(76, 175, 80, 0.1); color: var(--success); border-color: var(--success);' : ''}">${t.error}</div>` : ''}
+                        ${t.error ? `<div class="transfer-error" style="${t.status === 'completed' ? 'background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: var(--success);' : ''}">${t.error}</div>` : ''}
                     </div>
                 `}).join('');
             } catch (err) {
@@ -1979,7 +2150,7 @@
                                 Transferred: <strong style="color: var(--text-primary);">${t.progress.transferred}</strong>
                             </div>
                         ` : ''}
-                        ${t.error ? `<div class="transfer-error">${t.error}</div>` : ''}
+                        ${t.error ? `<div class="transfer-error" style="${t.status === 'completed' ? 'background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: var(--success);' : ''}">${t.error}</div>` : ''}
                     </div>
                 `).join('');
             } catch (err) {
@@ -2025,6 +2196,7 @@
                                 <span style="color: var(--text-tertiary); font-size: 11px;">${scheduleType}</span>
                             </div>
                             <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary btn-small" onclick='editScheduledJob(${JSON.stringify(t).replace(/'/g, "\\'")})'> Edit</button>
                                 <button class="btn btn-${t.enabled ? 'secondary' : 'primary'} btn-small" onclick="toggleScheduledJob(${t.id}, ${!t.enabled})">
                                     ${t.enabled ? 'Disable' : 'Enable'}
                                 </button>
@@ -2088,6 +2260,8 @@
                 } else if (type === 'recurring') {
                     schedule.interval = document.getElementById('schedule-interval').value;
                     schedule.time = document.getElementById('schedule-time').value;
+                    // Send timezone offset so backend can calculate correct time
+                    schedule.timezoneOffset = new Date().getTimezoneOffset();
                 }
             }
             

@@ -108,8 +108,8 @@ CloudKlone automatically sets:
    ```
    Remote Name: aws-s3
    Provider: AWS
-   Access Key ID: AKIAIOSFODNN7EXAMPLE
-   Secret Access Key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+   Access Key ID: <YOUR_AWS_ACCESS_KEY_ID>
+   Secret Access Key: <YOUR_AWS_SECRET_ACCESS_KEY>
    Region: us-east-1
    Endpoint: (leave blank for AWS)
    ```

@@ -15,9 +15,43 @@ docker-compose up -d
 # 3. Access
 # Open browser to http://localhost
 # Login: admin / admin
+# ⚠️ IMPORTANT: Change the default password immediately after first login!
 ```
 
+**⚠️ SECURITY WARNING:** The default credentials (`admin / admin`) are **INSECURE**. Change them immediately after first login:
+1. Log in with `admin / admin`
+2. Go to **Settings** → **Account**
+3. Click **Change Password**
+4. Use a strong, unique password
+
+Never use default credentials in production!
+
 **That's it!** No manual key generation, no .env editing, no configuration files.
+
+---
+
+## 🔒 HTTPS Support
+
+CloudKlone includes **3 HTTPS options** for secure access:
+
+### 🟢 Quick Start: Self-Signed (Development/Homelab)
+```bash
+./setup-https.sh
+# Choose option 1
+```
+Works immediately, no domain needed. Browser will show security warning (expected).
+
+### 🟦 Production: Let's Encrypt + Traefik (Recommended)
+```bash
+./setup-https.sh
+# Choose option 2, enter your domain
+```
+Valid SSL certificate, automatic renewal. **Requires domain name.**
+
+### 🟣 Advanced: Custom Reverse Proxy
+Use your existing nginx/Caddy/Apache setup. CloudKlone runs on `http://localhost:3001`.
+
+**📖 Full guide:** See `HTTPS-SETUP-GUIDE.md` for detailed instructions.
 
 ---
 

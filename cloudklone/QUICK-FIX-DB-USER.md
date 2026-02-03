@@ -78,7 +78,33 @@ The new package reverts to your original credentials, so everything is compatibl
 For future versions, your database credentials will stay as:
 - `rclone_admin` / `rclone_gui` / `changeme123`
 
-This is fine! It's just a name. You can change the password later if you want:
+⚠️ **SECURITY WARNING**: The default password `changeme123` is **INSECURE** and must be changed immediately, especially if your server is exposed to the internet or untrusted networks!
+
+**To rotate your database password NOW:**
+
+```bash
+# 1. Connect to database
+docker-compose exec postgres psql -U rclone_admin rclone_gui
+
+# 2. Change password (replace with a strong unique password)
+ALTER USER rclone_admin WITH PASSWORD 'your_strong_unique_password_here';
+\q
+
+# 3. Update .env file
+nano .env
+# Change DATABASE_URL to: postgresql://rclone_admin:your_strong_unique_password_here@postgres:5432/rclone_gui
+
+# 4. Restart CloudKlone
+docker-compose restart app
+```
+
+**Password security checklist:**
+- ✅ Use a unique, strong password (20+ characters)
+- ✅ Store in a password vault/manager
+- ✅ Never reuse this password elsewhere
+- ✅ Rotate regularly (every 90 days)
+
+This is important for production environments!
 
 ```bash
 docker-compose exec postgres psql -U rclone_admin rclone_gui

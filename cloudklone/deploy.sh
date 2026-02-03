@@ -58,7 +58,7 @@ ENCRYPTION_KEY=$ENCRYPTION_KEY
 JWT_SECRET=$JWT_SECRET
 
 # Database connection (auto-configured by docker-compose)
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/cloudklone
+DATABASE_URL=postgresql://rclone_admin:changeme123@postgres:5432/rclone_gui
 
 # Server port
 PORT=3001
@@ -157,8 +157,11 @@ if [ -d "$INSTALL_DIR.old" ]; then
     docker-compose up -d postgres
     sleep 5
     
+    # Temporarily disable errexit to handle migration errors gracefully
+    set +e
+    
     # Run migrations
-    docker-compose exec -T postgres psql -U postgres cloudklone << 'EOSQL'
+    docker-compose exec -T postgres psql -U rclone_admin rclone_gui << 'EOSQL'
 -- Add scheduling columns
 ALTER TABLE transfers ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;
 ALTER TABLE transfers ADD COLUMN IF NOT EXISTS schedule_type VARCHAR(20);
@@ -189,7 +192,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;
 \echo '✓ Database migrations complete'
 EOSQL
     
-    if [ $? -eq 0 ]; then
+    MIGRATION_EXIT_CODE=$?
+    
+    # Re-enable errexit
+    set -e
+    
+    if [ $MIGRATION_EXIT_CODE -eq 0 ]; then
         echo "✓ Database migrations successful"
     else
         echo "⚠️  Database migrations had errors (may be OK if columns already exist)"

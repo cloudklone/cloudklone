@@ -246,6 +246,25 @@ async function validateTransferOperation(req, res, next) {
     const { operation } = req.body;
     const permissions = await getUserPermissions(req.user.id);
     
+    // Guard against null permissions
+    if (!permissions) {
+      await logAudit({
+        user_id: req.user.id,
+        username: req.user.username,
+        action: 'permission_lookup_failed',
+        resource_type: 'transfer',
+        resource_id: null,
+        resource_name: operation,
+        details: { operation, reason: 'permissions_null' },
+        ip_address: req.ip,
+        user_agent: req.get('user-agent')
+      });
+      return res.status(403).json({ 
+        error: 'Unable to verify permissions. Please contact an administrator.',
+        allowedOperations: []
+      });
+    }
+    
     if (operation === 'sync' && !permissions.can_create_sync) {
       await logAudit({
         user_id: req.user.id,
@@ -293,6 +312,24 @@ async function validateTransferOperation(req, res, next) {
 async function checkTransferOwnership(req, res, next) {
   try {
     const permissions = await getUserPermissions(req.user.id);
+    
+    // Guard against null permissions
+    if (!permissions) {
+      await logAudit({
+        user_id: req.user.id,
+        username: req.user.username,
+        action: 'permission_lookup_failed',
+        resource_type: 'transfer',
+        resource_id: req.params.id,
+        resource_name: 'delete',
+        details: { reason: 'permissions_null' },
+        ip_address: req.ip,
+        user_agent: req.get('user-agent')
+      });
+      return res.status(403).json({ 
+        error: 'Unable to verify permissions. Please contact an administrator.'
+      });
+    }
     
     // Admins can delete any transfer
     if (permissions.can_delete_any_transfers) {
@@ -726,7 +763,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
-      updates.push(`password = $${paramIndex++}`);
+      updates.push(`password_hash = $${paramIndex++}`);
       values.push(hashedPassword);
     }
     
@@ -1162,6 +1199,7 @@ app.post('/api/transfers', authenticateToken, validateTransferOperation, async (
     let scheduledFor = null;
     let scheduleType = null;
     let scheduleInterval = null;
+    let scheduleTime = null;
     let nextRun = null;
     
     if (schedule && schedule.enabled) {
@@ -1172,19 +1210,21 @@ app.post('/api/transfers', authenticateToken, validateTransferOperation, async (
         nextRun = scheduledFor;
       } else if (schedule.type === 'recurring') {
         scheduleInterval = schedule.interval; // 'hourly', 'daily', 'weekly', 'monthly'
-        nextRun = calculateNextRun(scheduleInterval, schedule.time);
+        scheduleTime = schedule.time; // Store the time like "14:00"
+        const timezoneOffset = schedule.timezoneOffset || 0;
+        nextRun = calculateNextRun(scheduleInterval, schedule.time, timezoneOffset);
       }
     }
     
     const result = await pool.query(
       `INSERT INTO transfers 
-       (user_id, transfer_id, source_remote, source_path, dest_remote, dest_path, operation, status, scheduled_for, schedule_type, schedule_interval, next_run, enabled) 
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) 
+       (user_id, transfer_id, source_remote, source_path, dest_remote, dest_path, operation, status, scheduled_for, schedule_type, schedule_interval, schedule_time, next_run, enabled) 
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) 
        RETURNING *`,
       [
         req.user.id, transferId, sourceRemote, sourcePath, destRemote, destPath, operation,
         schedule && schedule.enabled ? 'scheduled' : 'queued',
-        scheduledFor, scheduleType, scheduleInterval, nextRun, true
+        scheduledFor, scheduleType, scheduleInterval, scheduleTime, nextRun, true
       ]
     );
     
@@ -1215,6 +1255,83 @@ app.post('/api/transfers', authenticateToken, validateTransferOperation, async (
       details: error.message,
       hint: error.code === '42703' ? 'Database schema outdated - rebuild container' : null
     });
+  }
+});
+
+// Update scheduled transfer
+app.put('/api/transfers/:id/schedule', authenticateToken, async (req, res) => {
+  try {
+    const { schedule } = req.body;
+    
+    if (!schedule || !schedule.enabled) {
+      return res.status(400).json({ error: 'Schedule information required' });
+    }
+    
+    // Get transfer and check ownership
+    const transferCheck = await pool.query(
+      'SELECT * FROM transfers WHERE id = $1',
+      [req.params.id]
+    );
+    
+    if (transferCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Transfer not found' });
+    }
+    
+    const transfer = transferCheck.rows[0];
+    
+    // Check if user owns this transfer or is admin
+    if (transfer.user_id !== req.user.id && !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Permission denied' });
+    }
+    
+    // Calculate new schedule
+    let scheduledFor = null;
+    let scheduleType = schedule.type;
+    let scheduleInterval = null;
+    let scheduleTime = null;
+    let nextRun = null;
+    
+    if (schedule.type === 'once') {
+      scheduledFor = new Date(schedule.datetime);
+      nextRun = scheduledFor;
+    } else if (schedule.type === 'recurring') {
+      scheduleInterval = schedule.interval;
+      scheduleTime = schedule.time;
+      const timezoneOffset = schedule.timezoneOffset || 0;
+      nextRun = calculateNextRun(scheduleInterval, schedule.time, timezoneOffset);
+    }
+    
+    // Update transfer
+    const result = await pool.query(
+      `UPDATE transfers 
+       SET scheduled_for = $1, 
+           schedule_type = $2, 
+           schedule_interval = $3, 
+           schedule_time = $4,
+           next_run = $5,
+           status = 'scheduled'
+       WHERE id = $6 
+       RETURNING *`,
+      [scheduledFor, scheduleType, scheduleInterval, scheduleTime, nextRun, req.params.id]
+    );
+    
+    // Log audit event
+    await logAudit({
+      user_id: req.user.id,
+      username: req.user.username,
+      action: 'schedule_updated',
+      resource_type: 'transfer',
+      resource_id: req.params.id,
+      resource_name: `${transfer.source_remote}:${transfer.source_path} → ${transfer.dest_remote}:${transfer.dest_path}`,
+      details: { schedule_type: scheduleType, schedule_interval: scheduleInterval, next_run: nextRun },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    });
+    
+    res.json({ transfer: result.rows[0] });
+  } catch (error) {
+    console.error('Update schedule error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -1360,7 +1477,7 @@ app.post('/api/notifications/settings', authenticateToken, requirePermission('ca
         smtp_host = $5,
         smtp_port = $6,
         smtp_user = $7,
-        smtp_pass = $8,
+        smtp_pass = CASE WHEN $8 IS NOT NULL THEN $8 ELSE notification_settings.smtp_pass END,
         notify_on_failure = $9,
         notify_on_success = $10,
         daily_report = $11,
@@ -1892,25 +2009,47 @@ setInterval(async () => {
 }, 5 * 60 * 1000); // Check every 5 minutes
 
 // Calculate next run time based on interval
-function calculateNextRun(interval, time = '00:00') {
+function calculateNextRun(interval, time = '00:00', timezoneOffset = null) {
   const now = new Date();
   const [hours, minutes] = time.split(':').map(Number);
   
+  // Create next run time in local server time
   let next = new Date(now);
   next.setHours(hours || 0, minutes || 0, 0, 0);
   
+  // If timezone offset provided, it means the time is in user's timezone
+  // We need to adjust to server's timezone
+  if (timezoneOffset !== null) {
+    // getTimezoneOffset returns offset in minutes (positive for west of UTC)
+    // e.g., EST is +300 (5 hours behind UTC)
+    const serverOffset = now.getTimezoneOffset();
+    const userOffset = timezoneOffset;
+    const diff = userOffset - serverOffset;
+    
+    // Adjust for timezone difference
+    next = new Date(next.getTime() - (diff * 60 * 1000));
+  }
+  
   switch(interval) {
     case 'hourly':
+      // For hourly, just add 1 hour from now
       next = new Date(now.getTime() + 60 * 60 * 1000);
       break;
     case 'daily':
-      if (next <= now) next.setDate(next.getDate() + 1);
+      // If the calculated time has passed today, move to tomorrow
+      if (next <= now) {
+        next = new Date(next.getTime() + 24 * 60 * 60 * 1000);
+      }
       break;
     case 'weekly':
-      if (next <= now) next.setDate(next.getDate() + 7);
+      if (next <= now) {
+        next = new Date(next.getTime() + 7 * 24 * 60 * 60 * 1000);
+      }
       break;
     case 'monthly':
-      if (next <= now) next.setMonth(next.getMonth() + 1);
+      if (next <= now) {
+        next.setMonth(next.getMonth() + 1);
+      }
       break;
   }
   
@@ -1935,7 +2074,9 @@ cron.schedule('* * * * *', async () => {
       
       // Update last_run and calculate next_run if recurring
       if (transfer.schedule_type === 'recurring') {
-        const nextRun = calculateNextRun(transfer.schedule_interval, '00:00');
+        // Use stored schedule_time or default to 00:00
+        const time = transfer.schedule_time || '00:00';
+        const nextRun = calculateNextRun(transfer.schedule_interval, time);
         await pool.query(
           'UPDATE transfers SET status = $1, last_run = $2, next_run = $3 WHERE transfer_id = $4',
           ['queued', now, nextRun, transfer.transfer_id]
@@ -2030,10 +2171,20 @@ async function initDatabase() {
         scheduled_for TIMESTAMP,
         schedule_type VARCHAR(20),
         schedule_interval VARCHAR(50),
+        schedule_time VARCHAR(10),
         last_run TIMESTAMP,
         next_run TIMESTAMP,
         enabled BOOLEAN DEFAULT true
       );
+      
+      -- Add schedule_time column if it doesn't exist (migration)
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                       WHERE table_name='transfers' AND column_name='schedule_time') THEN
+          ALTER TABLE transfers ADD COLUMN schedule_time VARCHAR(10);
+        END IF;
+      END $$;
       CREATE TABLE IF NOT EXISTS notification_settings (
         id SERIAL PRIMARY KEY,
         user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
