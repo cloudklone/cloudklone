@@ -58,7 +58,7 @@ ENCRYPTION_KEY=$ENCRYPTION_KEY
 JWT_SECRET=$JWT_SECRET
 
 # Database connection (auto-configured by docker-compose)
-DATABASE_URL=postgresql://rclone_admin:changeme123@postgres:5432/rclone_gui
+DATABASE_URL=postgresql://cloudklone_user:changeme123@postgres:5432/cloudklone
 
 # Server port
 PORT=3001
@@ -161,7 +161,7 @@ if [ -d "$INSTALL_DIR.old" ]; then
     set +e
     
     # Run migrations
-    docker-compose exec -T postgres psql -U rclone_admin rclone_gui << 'EOSQL'
+    docker-compose exec -T postgres psql -U cloudklone_user cloudklone << 'EOSQL'
 -- Add scheduling columns
 ALTER TABLE transfers ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;
 ALTER TABLE transfers ADD COLUMN IF NOT EXISTS schedule_type VARCHAR(20);

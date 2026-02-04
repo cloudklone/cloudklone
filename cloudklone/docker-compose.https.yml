@@ -31,15 +31,15 @@ services:
     container_name: cloudklone-database
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: rclone_gui
-      POSTGRES_USER: rclone_admin
+      POSTGRES_DB: cloudklone
+      POSTGRES_USER: cloudklone_user
       POSTGRES_PASSWORD: changeme123
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - cloudklone-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rclone_admin -d rclone_gui"]
+      test: ["CMD-SHELL", "pg_isready -U cloudklone_user -d cloudklone"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -55,7 +55,7 @@ services:
       node index.js
       "
     environment:
-      DATABASE_URL: postgresql://rclone_admin:changeme123@postgres:5432/rclone_gui
+      DATABASE_URL: postgresql://cloudklone_user:changeme123@postgres:5432/cloudklone
       PORT: 3001
     volumes:
       - ./backend:/app

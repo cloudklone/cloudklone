@@ -1130,20 +1130,29 @@ app.get('/api/transfers/scheduled', authenticateToken, async (req, res) => {
   try {
     const { filter } = req.query;
     
-    let query = 'SELECT * FROM transfers WHERE user_id = $1 AND status = $2';
-    const params = [req.user.id, 'scheduled'];
+    // Admins can see all scheduled transfers, regular users see only their own
+    let query = 'SELECT * FROM transfers WHERE status = $1';
+    const params = ['scheduled'];
+    
+    if (!req.user.isAdmin) {
+      query += ' AND user_id = $2';
+      params.push(req.user.id);
+    }
+    
+    // Build filter based on next param index
+    const nextParam = params.length + 1;
     
     if (filter === 'recurring') {
-      query += ' AND schedule_type = $3';
+      query += ` AND schedule_type = $${nextParam}`;
       params.push('recurring');
     } else if (filter === 'once') {
-      query += ' AND schedule_type = $3';
+      query += ` AND schedule_type = $${nextParam}`;
       params.push('once');
     } else if (filter === 'active') {
-      query += ' AND enabled = $3';
+      query += ` AND enabled = $${nextParam}`;
       params.push(true);
     } else if (filter === 'disabled') {
-      query += ' AND enabled = $3';
+      query += ` AND enabled = $${nextParam}`;
       params.push(false);
     }
     
@@ -1152,15 +1161,23 @@ app.get('/api/transfers/scheduled', authenticateToken, async (req, res) => {
     const result = await pool.query(query, params);
     
     // Get statistics
-    const stats = await pool.query(`
+    let statsQuery = `
       SELECT 
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE enabled = true) as active,
         COUNT(*) FILTER (WHERE enabled = false) as disabled,
         COUNT(*) FILTER (WHERE schedule_type = 'recurring') as recurring
       FROM transfers 
-      WHERE user_id = $1 AND status = 'scheduled'
-    `, [req.user.id]);
+      WHERE status = 'scheduled'
+    `;
+    const statsParams = [];
+    
+    if (!req.user.isAdmin) {
+      statsQuery += ' AND user_id = $1';
+      statsParams.push(req.user.id);
+    }
+    
+    const stats = await pool.query(statsQuery, statsParams);
     
     res.json({ 
       transfers: result.rows,
@@ -1775,10 +1792,13 @@ async function startTransfer(transfer, userId) {
     if (hasSeenProgress && lastProgress.transferred === 'Checking files...' && timeSinceUpdate > 60000) {
       console.log(`[${transfer.transfer_id}] ⚠️ Stuck in checking state for 60s, killing process`);
       
-      // Mark as failed due to timeout
+      // Mark as failed due to timeout (or scheduled for recurring)
+      const isRecurringScheduled = transfer.schedule_type === 'recurring';
+      const finalStatus = isRecurringScheduled ? 'scheduled' : 'failed';
+      
       pool.query(
         'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3',
-        ['failed', 'Transfer timed out while checking files. This may indicate an rclone issue.', transfer.transfer_id]
+        [finalStatus, 'Transfer timed out while checking files. This may indicate an rclone issue.', transfer.transfer_id]
       ).then(() => {
         broadcast({ type: 'transfer_failed', transferId: transfer.transfer_id, error: 'Timed out while checking' });
       });
@@ -1792,10 +1812,13 @@ async function startTransfer(transfer, userId) {
     if (timeSinceUpdate > 7200000) {
       console.log(`[${transfer.transfer_id}] Timed out after 2 hours of inactivity`);
       
-      // Mark as failed due to timeout
+      // Mark as failed due to timeout (or scheduled for recurring)
+      const isRecurringScheduled = transfer.schedule_type === 'recurring';
+      const finalStatus = isRecurringScheduled ? 'scheduled' : 'failed';
+      
       pool.query(
         'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3',
-        ['failed', 'Transfer timed out after 2 hours of inactivity', transfer.transfer_id]
+        [finalStatus, 'Transfer timed out after 2 hours of inactivity', transfer.transfer_id]
       ).then(() => {
         broadcast({ type: 'transfer_failed', transferId: transfer.transfer_id, error: 'Timed out' });
       });
@@ -1933,27 +1956,46 @@ async function startTransfer(transfer, userId) {
       }
       
       // Clear progress - transfer is done
+      // For recurring scheduled transfers, set back to 'scheduled' status
+      const isRecurringScheduled = transfer.schedule_type === 'recurring';
+      const finalStatus = isRecurringScheduled ? 'scheduled' : 'completed';
+      
       await pool.query(
         'UPDATE transfers SET status = $1, completed_at = CURRENT_TIMESTAMP, error = $2, progress = NULL WHERE transfer_id = $3',
-        ['completed', completionNote, transfer.transfer_id]
+        [finalStatus, completionNote, transfer.transfer_id]
       );
       broadcast({ type: 'transfer_complete', transferId: transfer.transfer_id, note: completionNote });
-      console.log(`[${transfer.transfer_id}] ✅ Completed: ${completionNote}`);
+      console.log(`[${transfer.transfer_id}] ✅ Completed: ${completionNote}${isRecurringScheduled ? ' (will run again)' : ''}`);
       await notifyTransferComplete(transfer, userId, true);
     } else {
+      // Transfer failed - but check if any files were transferred (partial success)
       let errorMessage = `Transfer failed (exit code ${code})`;
       const errorLines = errorOutput.split('\n').filter(line => 
         line.includes('ERROR') || line.includes('Failed') || line.includes('NOTICE')
       );
-      if (errorLines.length > 0) {
+      
+      // Check for partial success
+      const hasPermissionErrors = errorOutput.includes('permission denied') || errorOutput.includes('Access is denied');
+      const partialSuccess = filesTransferred > 0;
+      
+      if (partialSuccess && hasPermissionErrors) {
+        errorMessage = `Partial success: ${filesTransferred} file(s) transferred${totalBytes ? ' (' + totalBytes + ')' : ''}, but some files failed due to permission errors. Check source file permissions.`;
+      } else if (partialSuccess) {
+        errorMessage = `Partial success: ${filesTransferred} file(s) transferred${totalBytes ? ' (' + totalBytes + ')' : ''}, but transfer completed with errors.`;
+      } else if (errorLines.length > 0) {
         errorMessage = errorLines[0].substring(0, 200);
       }
       
+      // For recurring scheduled transfers, set back to 'scheduled' status so they run again
+      const isRecurringScheduled = transfer.schedule_type === 'recurring';
+      const finalStatus = isRecurringScheduled ? 'scheduled' : 'failed';
+      
       await pool.query(
-        'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3',
-        ['failed', errorMessage, transfer.transfer_id]
+        'UPDATE transfers SET status = $1, error = $2, progress = NULL WHERE transfer_id = $3',
+        [finalStatus, errorMessage, transfer.transfer_id]
       );
       broadcast({ type: 'transfer_failed', transferId: transfer.transfer_id, error: errorMessage });
+      console.log(`[${transfer.transfer_id}] ❌ Failed: ${errorMessage}${isRecurringScheduled ? ' (will retry at next scheduled time)' : ''}`);
       await notifyTransferComplete(transfer, userId, false, errorMessage);
     }
   });
@@ -1962,9 +2004,14 @@ async function startTransfer(transfer, userId) {
     clearInterval(timeoutCheck);
     activeTransfers.delete(transfer.transfer_id);
     const errorMessage = `Failed to start transfer: ${err.message}`;
+    
+    // For recurring scheduled transfers, set back to 'scheduled' status
+    const isRecurringScheduled = transfer.schedule_type === 'recurring';
+    const finalStatus = isRecurringScheduled ? 'scheduled' : 'failed';
+    
     await pool.query(
       'UPDATE transfers SET status = $1, error = $2 WHERE transfer_id = $3',
-      ['failed', errorMessage, transfer.transfer_id]
+      [finalStatus, errorMessage, transfer.transfer_id]
     );
     broadcast({ type: 'transfer_failed', transferId: transfer.transfer_id, error: errorMessage });
     await notifyTransferComplete(transfer, userId, false, errorMessage);
@@ -2013,23 +2060,33 @@ function calculateNextRun(interval, time = '00:00', timezoneOffset = null) {
   const now = new Date();
   const [hours, minutes] = time.split(':').map(Number);
   
-  // Create next run time in local server time
-  let next = new Date(now);
-  next.setHours(hours || 0, minutes || 0, 0, 0);
+  // Create a date for the specified time TODAY in the user's timezone
+  // We'll create it in UTC, then adjust
+  let next = new Date();
   
-  // If timezone offset provided, it means the time is in user's timezone
-  // We need to adjust to server's timezone
   if (timezoneOffset !== null) {
-    // getTimezoneOffset returns offset in minutes (positive for west of UTC)
-    // e.g., EST is +300 (5 hours behind UTC)
-    const serverOffset = now.getTimezoneOffset();
-    const userOffset = timezoneOffset;
-    const diff = userOffset - serverOffset;
+    // User's local time needs to be converted to UTC for storage
+    // timezoneOffset is positive for west of UTC (e.g., EST = 300 = UTC-5)
+    // To convert user's local time to UTC: subtract the offset
     
-    // Adjust for timezone difference
-    next = new Date(next.getTime() - (diff * 60 * 1000));
+    // Get current date components in UTC
+    const utcYear = now.getUTCFullYear();
+    const utcMonth = now.getUTCMonth();
+    const utcDate = now.getUTCDate();
+    
+    // Create date at the user's specified time, but in UTC coordinates
+    next = new Date(Date.UTC(utcYear, utcMonth, utcDate, hours, minutes, 0, 0));
+    
+    // Now adjust for the user's timezone offset
+    // If user is in EST (UTC-5, offset=300), and they want 12:00 AM EST
+    // That's 5:00 AM UTC, so we ADD 5 hours (300 minutes)
+    next = new Date(next.getTime() + (timezoneOffset * 60 * 1000));
+  } else {
+    // No timezone info, use server's local time
+    next.setHours(hours, minutes, 0, 0);
   }
   
+  // Apply interval logic
   switch(interval) {
     case 'hourly':
       // For hourly, just add 1 hour from now
@@ -2048,7 +2105,7 @@ function calculateNextRun(interval, time = '00:00', timezoneOffset = null) {
       break;
     case 'monthly':
       if (next <= now) {
-        next.setMonth(next.getMonth() + 1);
+        next.setUTCMonth(next.getUTCMonth() + 1);
       }
       break;
   }
@@ -2226,6 +2283,6 @@ initDatabase()
     });
   })
   .catch((err) => {
-    console.error('Failed to initialize database:', error);
+    console.error('Failed to initialize database:', err);
     process.exit(1);
   });
