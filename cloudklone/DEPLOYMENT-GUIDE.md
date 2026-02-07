@@ -1,8 +1,8 @@
-# CloudKlone v7 - Deployment Guide
+# CloudKlone v8 - Deployment Guide
 
 ## Overview
 
-CloudKlone v7 is an enterprise-grade data transfer orchestration platform for managing cloud-to-cloud, cloud-to-endpoint, and cross-cloud data operations at scale. The platform provides centralized control, comprehensive audit trails, role-based access control, and automated scheduling for multi-cloud data transfer workflows.
+CloudKlone v8 is an enterprise-grade data transfer orchestration platform for managing cloud-to-cloud, cloud-to-endpoint, and cross-cloud data operations at scale. The platform provides centralized control, comprehensive audit trails, role-based access control, and automated scheduling for multi-cloud data transfer workflows.
 
 **Key Capabilities:**
 - Centralized multi-cloud transfer orchestration
@@ -24,7 +24,7 @@ CloudKlone v7 is an enterprise-grade data transfer orchestration platform for ma
 ### 1. Extract and Deploy
 
 ```bash
-tar -xzf cloudklone-v7-security-https.tar.gz
+tar -xzf cloudklone-v8-security-https.tar.gz
 cd cloudklone
 sudo docker-compose up -d
 ```
@@ -534,7 +534,7 @@ All endpoints require JWT authentication except `/api/auth/login`.
 
 ## Version History
 
-**v7 (Current):**
+**v8 (Current):**
 - HTTPS by default with auto-generated certificate
 - SSH host key management for SFTP
 - Forced password change on first login

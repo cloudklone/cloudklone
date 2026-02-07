@@ -3,7 +3,7 @@
 ## Issue
 
 Application crashed on startup with:
-```
+```text
 ReferenceError: wss is not defined
     at Object.<anonymous> (/app/index.js:2053:1)
 ```

@@ -195,14 +195,14 @@ async function startTransfer(transfer, userId) {
 ### Testing:
 
 **Test non-encrypted transfer:**
-```
+```text
 1. Go to Transfers tab
 2. Create transfer WITHOUT encryption
 3. Transfer should complete successfully
 ```
 
 **Test encrypted transfer:**
-```
+```text
 1. Go to Transfers tab  
 2. Check "Encrypt this transfer"
 3. Auto-generate password
@@ -284,7 +284,7 @@ if (outputTruncated) {
 ### Testing:
 
 **Test small file (should work):**
-```
+```text
 1. Go to Tests & Queries tab
 2. Select query: cat
 3. Select a small text file (< 1MB)
@@ -293,7 +293,7 @@ if (outputTruncated) {
 ```
 
 **Test large file (should truncate):**
-```
+```text
 1. Go to Tests & Queries tab
 2. Select query: cat
 3. Enter filename: video.mp4 (or any large file)

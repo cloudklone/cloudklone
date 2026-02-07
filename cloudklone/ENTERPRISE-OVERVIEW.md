@@ -1,4 +1,4 @@
-# CloudKlone v7 - Enterprise Data Transfer Orchestration Platform
+# CloudKlone v8 - Enterprise Data Transfer Orchestration Platform
 
 ## Executive Summary
 
