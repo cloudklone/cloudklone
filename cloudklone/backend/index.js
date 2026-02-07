@@ -2319,7 +2319,8 @@ app.post('/api/notifications/settings', authenticateToken, requirePermission('ca
       email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, smtp_pass,
       webhook_enabled, webhook_url, webhook_type,
       notify_on_failure, notify_on_success, daily_report,
-      webhook_notify_on_failure, webhook_notify_on_success, webhook_daily_report
+      webhook_notify_on_failure, webhook_notify_on_success, webhook_daily_report,
+      timezone
     } = req.body;
     
     // Encrypt SMTP password if provided
@@ -2330,8 +2331,8 @@ app.post('/api/notifications/settings', authenticateToken, requirePermission('ca
       (user_id, email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, smtp_pass, 
        webhook_enabled, webhook_url, webhook_type,
        notify_on_failure, notify_on_success, daily_report,
-       webhook_notify_on_failure, webhook_notify_on_success, webhook_daily_report)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       webhook_notify_on_failure, webhook_notify_on_success, webhook_daily_report, timezone)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       ON CONFLICT (user_id) 
       DO UPDATE SET 
         email_enabled = $2,
@@ -2350,12 +2351,13 @@ app.post('/api/notifications/settings', authenticateToken, requirePermission('ca
         webhook_notify_on_failure = $15,
         webhook_notify_on_success = $16,
         webhook_daily_report = $17,
+        timezone = $18,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `, [req.user.id, email_enabled, email_address, from_email, smtp_host, smtp_port, smtp_user, encryptedPass,
         webhook_enabled, webhook_url, webhook_type,
         notify_on_failure, notify_on_success, daily_report,
-        webhook_notify_on_failure, webhook_notify_on_success, webhook_daily_report]);
+        webhook_notify_on_failure, webhook_notify_on_success, webhook_daily_report, timezone || 'UTC']);
     
     // Log audit event
     await logAudit({
@@ -3191,14 +3193,12 @@ async function startTransfer(transfer, userId) {
   }
 }
 
-// Daily report cron
+// Daily report cron - check every minute for users whose local time is midnight
 setInterval(async () => {
   try {
     const now = new Date();
-    if (now.getHours() !== 0 || now.getMinutes() > 5) return; // Run once daily at midnight
     
-    console.log(`[INFO] Running daily report at ${now.toISOString()}`);
-    
+    // Get all users with daily reports enabled
     const users = await pool.query(`
       SELECT u.id, u.username, ns.* 
       FROM users u 
@@ -3207,55 +3207,94 @@ setInterval(async () => {
          OR (ns.webhook_enabled = true AND ns.webhook_daily_report = true)
     `);
     
-    console.log(`[INFO] Found ${users.rows.length} users with daily reports enabled`);
-    
     for (const user of users.rows) {
-      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const stats = await pool.query(`
-        SELECT 
-          COUNT(*) FILTER (WHERE status = 'completed') as completed,
-          COUNT(*) FILTER (WHERE status = 'failed') as failed,
-          COUNT(*) as total
-        FROM transfers 
-        WHERE user_id = $1 AND created_at >= $2
-      `, [user.id, yesterday]);
+      const userTimezone = user.timezone || 'UTC';
       
-      if (stats.rows[0].total > 0) {
-        const s = stats.rows[0];
-        const reportText = `Daily Transfer Report for ${now.toDateString()}\n\nCompleted: ${s.completed}\nFailed: ${s.failed}\nTotal: ${s.total}`;
+      try {
+        // Get user's local time using their timezone
+        const userLocalTime = new Date(now.toLocaleString('en-US', { timeZone: userTimezone }));
+        const hour = userLocalTime.getHours();
+        const minute = userLocalTime.getMinutes();
         
-        // Send email report
-        if (user.email_enabled && user.daily_report) {
-          try {
-            await sendEmail(user, {
-              subject: 'CloudKlone Daily Report',
-              text: reportText
-            });
-            console.log(`[OK] Daily email report sent to ${user.username}`);
-          } catch (err) {
-            console.error(`[ERROR] Failed to send daily email to ${user.username}:`, err.message);
+        // Check if it's midnight (00:00 to 00:05) in user's timezone
+        if (hour === 0 && minute >= 0 && minute <= 5) {
+          // Check if we already sent today's report (to avoid duplicates)
+          const lastReportCheck = await pool.query(
+            `SELECT last_report_sent FROM notification_settings WHERE user_id = $1`,
+            [user.id]
+          );
+          
+          const lastReportDate = lastReportCheck.rows[0]?.last_report_sent;
+          const todayDate = userLocalTime.toDateString();
+          
+          // Skip if we already sent a report today
+          if (lastReportDate === todayDate) {
+            continue;
+          }
+          
+          console.log(`[INFO] Running daily report for ${user.username} in timezone ${userTimezone}`);
+          
+          const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          const stats = await pool.query(`
+            SELECT 
+              COUNT(*) FILTER (WHERE status = 'completed') as completed,
+              COUNT(*) FILTER (WHERE status = 'failed') as failed,
+              COUNT(*) as total
+            FROM transfers 
+            WHERE user_id = $1 AND created_at >= $2
+          `, [user.id, yesterday]);
+          
+          if (stats.rows[0].total > 0) {
+            const s = stats.rows[0];
+            const reportText = `Daily Transfer Report for ${todayDate}\n\nCompleted: ${s.completed}\nFailed: ${s.failed}\nTotal: ${s.total}`;
+            
+            // Send email report
+            if (user.email_enabled && user.daily_report) {
+              try {
+                await sendEmail(user, {
+                  subject: 'CloudKlone Daily Report',
+                  text: reportText
+                });
+                console.log(`[OK] Daily email report sent to ${user.username}`);
+              } catch (err) {
+                console.error(`[ERROR] Failed to send daily email to ${user.username}:`, err.message);
+              }
+            }
+            
+            // Send webhook report
+            if (user.webhook_enabled && user.webhook_daily_report && user.webhook_url) {
+              try {
+                const payload = {
+                  report_type: 'daily_summary',
+                  date: todayDate,
+                  completed: parseInt(s.completed),
+                  failed: parseInt(s.failed),
+                  total: parseInt(s.total),
+                  timestamp: now.toISOString()
+                };
+                await sendWebhook(user, payload);
+                console.log(`[OK] Daily webhook report sent for ${user.username}`);
+              } catch (err) {
+                console.error(`[ERROR] Failed to send daily webhook for ${user.username}:`, err.message);
+              }
+            }
+            
+            // Mark report as sent for today
+            await pool.query(
+              `UPDATE notification_settings SET last_report_sent = $1 WHERE user_id = $2`,
+              [todayDate, user.id]
+            );
+          } else {
+            console.log(`[INFO] No transfers in last 24h for ${user.username}, skipping report`);
+            // Still mark as sent to avoid checking again
+            await pool.query(
+              `UPDATE notification_settings SET last_report_sent = $1 WHERE user_id = $2`,
+              [todayDate, user.id]
+            );
           }
         }
-        
-        // Send webhook report
-        if (user.webhook_enabled && user.webhook_daily_report && user.webhook_url) {
-          try {
-            const payload = {
-              report_type: 'daily_summary',
-              date: now.toDateString(),
-              completed: parseInt(s.completed),
-              failed: parseInt(s.failed),
-              total: parseInt(s.total),
-              timestamp: now.toISOString()
-            };
-            await sendWebhook(user, payload);
-            console.log(`[OK] Daily webhook report sent for ${user.username}`);
-          } catch (err) {
-            console.error(`[ERROR] Failed to send daily webhook for ${user.username}:`, err.message);
-          }
-        }
-      } else {
-        console.log(`[INFO] No transfers in last 24h for ${user.username}, skipping report`);
+      } catch (tzError) {
+        console.error(`[ERROR] Timezone error for user ${user.username}:`, tzError.message);
       }
     }
   } catch (error) {
@@ -3273,10 +3312,29 @@ async function startDecryptionTransfer(transfer, userId) {
     const salt = crypto.randomBytes(16).toString('base64');
     const obscuredSalt = await obscurePassword(salt);
     
+    // For decryption, the crypt remote must point to the DIRECTORY containing encrypted files
+    // NOT individual encrypted files (which have randomized names)
+    // Remove any trailing slashes and ensure it's a directory path
+    let cryptSourcePath = transfer.source_path || '';
+    
+    // If path looks like a file (has extension or specific encrypted filename), 
+    // use the parent directory
+    if (cryptSourcePath && !cryptSourcePath.endsWith('/')) {
+      // Check if this looks like a file path (has extension or is long random string)
+      const lastPart = cryptSourcePath.split('/').pop();
+      if (lastPart && (lastPart.includes('.') || lastPart.length > 20)) {
+        // Likely a file - use parent directory
+        const pathParts = cryptSourcePath.split('/');
+        pathParts.pop(); // Remove filename
+        cryptSourcePath = pathParts.join('/');
+        console.log(`[${transfer.transfer_id}] [DECRYPT] Adjusted path to directory: ${cryptSourcePath}`);
+      }
+    }
+    
     const cryptConfig = `
 [${tempCryptName}]
 type = crypt
-remote = ${transfer.source_remote}:${transfer.source_path}
+remote = ${transfer.source_remote}:${cryptSourcePath}
 password = ${transfer.crypt_password}
 password2 = ${obscuredSalt}
 filename_encryption = standard
@@ -3285,7 +3343,7 @@ directory_name_encryption = true
 `;
     
     await fs.appendFile(configFile, cryptConfig);
-    console.log(`[${transfer.transfer_id}] [DECRYPT] Created crypt remote: ${tempCryptName}`);
+    console.log(`[${transfer.transfer_id}] [DECRYPT] Created crypt remote: ${tempCryptName} -> ${transfer.source_remote}:${cryptSourcePath}`);
     
     // Build rclone copy command (decrypt source → destination)
     const args = [
@@ -3732,6 +3790,14 @@ async function initDatabase() {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
                        WHERE table_name='notification_settings' AND column_name='webhook_daily_report') THEN
           ALTER TABLE notification_settings ADD COLUMN webhook_daily_report BOOLEAN DEFAULT false;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                       WHERE table_name='notification_settings' AND column_name='timezone') THEN
+          ALTER TABLE notification_settings ADD COLUMN timezone VARCHAR(50) DEFAULT 'UTC';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                       WHERE table_name='notification_settings' AND column_name='last_report_sent') THEN
+          ALTER TABLE notification_settings ADD COLUMN last_report_sent VARCHAR(50);
         END IF;
       END $$;
     `);

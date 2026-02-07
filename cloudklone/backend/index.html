@@ -29,6 +29,17 @@
             --warning: #f59e0b;
         }
         
+        /* Light Mode Theme */
+        [data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f5;
+            --bg-tertiary: #e8e8e8;
+            --text-primary: #1a1a1a;
+            --text-secondary: #4a4a4a;
+            --text-tertiary: #707070;
+            --border-color: #d0d0d0;
+        }
+        
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: var(--bg-primary);
@@ -540,6 +551,9 @@
                 <div class="nav-item" onclick="showTab('logs')">Logs</div>
             </nav>
             <div class="sidebar-footer">
+                <button class="btn btn-small" onclick="toggleTheme()" style="width: 100%; margin-bottom: 0.5rem;" id="theme-toggle-btn">
+                    🌙 Dark Mode
+                </button>
                 <button class="btn btn-secondary btn-small" onclick="logout()" style="width: 100%;">Logout</button>
             </div>
         </div>
@@ -821,7 +835,8 @@
                             <label>Encrypted Path</label>
                             <input type="text" id="decrypt-source-path" placeholder="encrypted-folder or leave blank for root">
                             <small style="color: var(--text-tertiary); font-size: 12px;">
-                                The path where your encrypted files are stored
+                                The FOLDER/DIRECTORY where your encrypted files are stored. Leave blank to decrypt all files in the remote, or enter the directory path (e.g., "backups/encrypted").
+                                <strong>Note:</strong> Do NOT enter individual encrypted filenames (they look like random strings) - CloudKlone will automatically find and decrypt all files in the directory.
                             </small>
                         </div>
                         
@@ -1051,6 +1066,29 @@
                             </div>
                         </div>
                         <h4 style="margin: 2rem 0 1rem; font-size: 14px; font-weight: 600;">Notification Preferences</h4>
+                        <div class="form-group">
+                            <label>Timezone for Daily Reports</label>
+                            <select id="timezone" class="form-control">
+                                <option value="America/New_York">Eastern Time (ET)</option>
+                                <option value="America/Chicago">Central Time (CT)</option>
+                                <option value="America/Denver">Mountain Time (MT)</option>
+                                <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                                <option value="America/Phoenix">Arizona (MST - No DST)</option>
+                                <option value="America/Anchorage">Alaska Time (AKT)</option>
+                                <option value="Pacific/Honolulu">Hawaii Time (HST)</option>
+                                <option value="Europe/London">London (GMT/BST)</option>
+                                <option value="Europe/Paris">Paris (CET/CEST)</option>
+                                <option value="Europe/Berlin">Berlin (CET/CEST)</option>
+                                <option value="Asia/Tokyo">Tokyo (JST)</option>
+                                <option value="Asia/Shanghai">Shanghai (CST)</option>
+                                <option value="Asia/Dubai">Dubai (GST)</option>
+                                <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
+                                <option value="UTC">UTC (Universal Time)</option>
+                            </select>
+                            <small style="display: block; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 12px;">
+                                Daily reports will be sent at midnight in your selected timezone
+                            </small>
+                        </div>
                         <div class="form-group">
                             <label style="display: flex; align-items: center; gap: 0.5rem;">
                                 <input type="checkbox" id="notify-failure" style="width: auto;" checked>
@@ -1520,6 +1558,23 @@
             }
         }
 
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            
+            // Update button text
+            const btn = document.getElementById('theme-toggle-btn');
+            if (newTheme === 'light') {
+                btn.textContent = '☀️ Light Mode';
+            } else {
+                btn.textContent = '🌙 Dark Mode';
+            }
+        }
+        
         function logout() {
             token = null;
             localStorage.removeItem('token');
@@ -2772,7 +2827,7 @@
             
             // Show egress warning for providers that charge for downloads
             if (hasEgressCharges && !sessionStorage.getItem(`egress_warning_dismissed_${sourceRemote}`)) {
-                if (!confirm('⚠️ EGRESS COST WARNING\n\nYou are transferring data FROM a cloud provider that charges for data egress (downloads):\n\n• Amazon S3: ~$0.09 per GB\n• Google Cloud: ~$0.12 per GB\n• Azure: ~$0.087 per GB\n\nCloudflare R2 and Backblaze B2 do NOT charge egress fees.\n\nClick OK to continue or Cancel to abort this transfer.')) {
+                if (!confirm('⚠️ EGRESS COST WARNING\n\nYou are transferring data FROM a cloud provider that charges for data egress (downloads).\n\nProviders like Amazon S3, Google Cloud Storage, and Azure Blob Storage typically charge fees for downloading data out of their platforms. These costs can add up quickly with large transfers.\n\nNote: Cloudflare R2 and Backblaze B2 do NOT charge egress fees.\n\nRefer to your cloud provider\'s pricing documentation for current rates.\n\nClick OK to continue or Cancel to abort this transfer.')) {
                     return;
                 }
                 // Remember dismissal for this session
@@ -3386,6 +3441,14 @@
         
         // Show/hide filename input for cat command
         document.addEventListener('DOMContentLoaded', () => {
+            // Initialize theme
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            const btn = document.getElementById('theme-toggle-btn');
+            if (btn) {
+                btn.textContent = savedTheme === 'light' ? '☀️ Light Mode' : '🌙 Dark Mode';
+            }
+            
             const queryCommand = document.getElementById('query-command');
             const queryFileInput = document.getElementById('query-file-input');
             
@@ -3420,6 +3483,9 @@
                     document.getElementById('webhook-url').value = s.webhook_url || '';
                     document.getElementById('webhook-type').value = s.webhook_type || 'slack';
                     
+                    // Timezone
+                    document.getElementById('timezone').value = s.timezone || 'UTC';
+                    
                     // Email notification preferences
                     document.getElementById('notify-failure').checked = s.notify_on_failure !== false;
                     document.getElementById('notify-success').checked = s.notify_on_success || false;
@@ -3448,6 +3514,7 @@
                     webhook_enabled: document.getElementById('webhook-enabled').checked,
                     webhook_url: document.getElementById('webhook-url').value,
                     webhook_type: document.getElementById('webhook-type').value,
+                    timezone: document.getElementById('timezone').value,
                     notify_on_failure: document.getElementById('notify-failure').checked,
                     notify_on_success: document.getElementById('notify-success').checked,
                     daily_report: document.getElementById('daily-report').checked,
