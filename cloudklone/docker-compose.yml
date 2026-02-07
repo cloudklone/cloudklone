@@ -5,6 +5,7 @@ services:
     environment:
       POSTGRES_DB: cloudklone
       POSTGRES_USER: cloudklone_user
+      # WARNING: Change this password in production!
       POSTGRES_PASSWORD: changeme123
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -22,18 +23,33 @@ services:
     working_dir: /app
     command: >
       sh -c "
-      apk add --no-cache rclone &&
+      apk add --no-cache rclone openssh-client openssl &&
       npm install --omit=dev --quiet &&
       node index.js
       "
+    # PERFORMANCE OPTIMIZATION: Use host network for bare-metal speeds
+    # Uncomment the line below to enable host networking mode
+    # network_mode: "host"
+    # 
+    # IMPORTANT NOTES:
+    # - Provides bare-metal network speeds (no Docker network overhead)
+    # - Ports are directly exposed on host (80/443 must be available)
+    # - May NOT work in Kubernetes or some cloud platforms
+    # - For production, test thoroughly before enabling
+    # 
+    # If network_mode: host is enabled, comment out the ports section below
     environment:
       DATABASE_URL: postgresql://cloudklone_user:changeme123@postgres:5432/cloudklone
-      PORT: 3001
+      HTTP_PORT: 3001
+      HTTPS_PORT: 3443
     volumes:
       - ./backend:/app
       - rclone_config:/root/.config/rclone
+      - ssl_certs:/app/certs
+      - ssh_keys:/root/.ssh
     ports:
       - "0.0.0.0:80:3001"
+      - "0.0.0.0:443:3443"
     networks:
       - cloudklone-network
     depends_on:
@@ -44,6 +60,8 @@ services:
 volumes:
   postgres_data:
   rclone_config:
+  ssl_certs:
+  ssh_keys:
 
 networks:
   cloudklone-network:

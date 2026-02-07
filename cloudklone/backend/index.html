@@ -532,6 +532,8 @@
                 <div class="nav-item active" onclick="showTab('transfers')">Transfers</div>
                 <div class="nav-item" onclick="showTab('history')">History</div>
                 <div class="nav-item" onclick="showTab('scheduled')">Scheduled</div>
+                <div class="nav-item" onclick="showTab('tests')">Tests & Queries</div>
+                <div class="nav-item" onclick="showTab('decrypt')">Decrypt</div>
                 <div id="remotes-nav" class="nav-item" onclick="showTab('remotes')">Remotes</div>
                 <div id="settings-nav" class="nav-item" onclick="showTab('settings')">Settings</div>
                 <div id="admin-nav" class="nav-item hidden" onclick="showTab('admin')">Admin</div>
@@ -601,6 +603,32 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <div class="card" style="background: var(--bg-tertiary); padding: 1rem; margin-bottom: 1.5rem;">
+                            <div class="form-group" style="margin-bottom: 0.75rem;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="encrypt-enabled" style="width: auto;" onchange="toggleEncryption()">
+                                    Encrypt this transfer
+                                </label>
+                            </div>
+                            <div id="encryption-options" class="hidden">
+                                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 1rem;">
+                                    Files will be encrypted using rclone crypt before being transferred to the destination. You'll need the password to decrypt them later.
+                                </p>
+                                <div class="form-group">
+                                    <label>Encryption Password (optional - auto-generated if empty)</label>
+                                    <input type="password" id="encrypt-password" placeholder="Leave blank for auto-generated password">
+                                </div>
+                                <div class="form-group">
+                                    <label>Confirm Password</label>
+                                    <input type="password" id="encrypt-password-confirm" placeholder="Confirm password">
+                                </div>
+                                <div style="padding: 0.75rem; background: rgba(var(--warning-rgb), 0.1); border-left: 3px solid var(--warning); border-radius: 4px; font-size: 13px; color: var(--text-secondary);">
+                                    ⚠️ <strong>Important:</strong> Save your encryption password! Without it, you cannot decrypt your files. Encrypted transfers will be marked with [ENCRYPTED] in logs.
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="grid-2">
                             <div>
                                 <h4 style="margin-bottom: 1rem; font-size: 14px; color: var(--text-secondary);">Source</h4>
@@ -761,6 +789,94 @@
                 </div>
             </div>
 
+            <!-- Decrypt Tab -->
+            <div id="tab-decrypt" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>🔓 Decrypt Files</h2>
+                    <p>Decrypt files that were encrypted during transfer</p>
+                </div>
+                <div class="content-body">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Decrypt Encrypted Files</div>
+                        </div>
+                        
+                        <div style="padding: 1rem; background: rgba(var(--info-rgb), 0.1); border-left: 3px solid var(--info); border-radius: 4px; margin-bottom: 1.5rem;">
+                            <strong>ℹ️ How Decryption Works:</strong>
+                            <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: var(--text-secondary);">
+                                When you encrypted files during a transfer, they were stored using AES-256 encryption. 
+                                To access the original files, you need the encryption password you saved. 
+                                This process will decrypt the files and save them to your chosen destination.
+                            </p>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Encrypted Source Remote</label>
+                            <select id="decrypt-source-remote">
+                                <option value="">Select remote with encrypted files...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Encrypted Path</label>
+                            <input type="text" id="decrypt-source-path" placeholder="encrypted-folder or leave blank for root">
+                            <small style="color: var(--text-tertiary); font-size: 12px;">
+                                The path where your encrypted files are stored
+                            </small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Decryption Password *</label>
+                            <input type="password" id="decrypt-password" placeholder="Enter the password used to encrypt these files" required>
+                            <small style="color: var(--text-tertiary); font-size: 12px;">
+                                This is the password shown when you created the encrypted transfer
+                            </small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Destination Remote</label>
+                            <select id="decrypt-dest-remote">
+                                <option value="">Select destination for decrypted files...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Destination Path</label>
+                            <input type="text" id="decrypt-dest-path" placeholder="decrypted-files">
+                            <small style="color: var(--text-tertiary); font-size: 12px;">
+                                Where to save the decrypted files
+                            </small>
+                        </div>
+                        
+                        <div style="padding: 0.75rem; background: rgba(var(--warning-rgb), 0.1); border-left: 3px solid var(--warning); border-radius: 4px; margin-bottom: 1.5rem; font-size: 13px;">
+                            ⚠️ <strong>Important:</strong> Make sure you have the correct password. Incorrect passwords will fail silently or produce corrupted output.
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn" onclick="startDecryption()">Start Decryption</button>
+                            <button class="btn btn-secondary" onclick="testDecryptPassword()">Test Password</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Decryption Progress -->
+                    <div id="decrypt-progress-card" class="card" style="margin-top: 2rem; display: none;">
+                        <div class="card-header">
+                            <div class="card-title">Decryption Progress</div>
+                        </div>
+                        <div id="decrypt-progress-content"></div>
+                    </div>
+                    
+                    <!-- Recent Decryptions -->
+                    <div class="card" style="margin-top: 2rem;">
+                        <div class="card-header">
+                            <div class="card-title">Recent Decryptions</div>
+                            <button class="btn btn-secondary btn-small" onclick="loadDecryptionHistory()">Refresh</button>
+                        </div>
+                        <div id="decrypt-history-list"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Remotes Tab -->
             <div id="tab-remotes" class="tab-content hidden">
                 <div class="content-header">
@@ -788,6 +904,99 @@
 
                     <h3 style="margin: 2rem 0 1rem; font-size: 18px; font-weight: 600;">Your Remotes</h3>
                     <div id="remotes-list"></div>
+                </div>
+            </div>
+
+            <!-- Tests & Queries Tab -->
+            <div id="tab-tests" class="tab-content hidden">
+                <div class="content-header">
+                    <h2>Tests & Queries</h2>
+                    <p>Test transfers safely and query remote information</p>
+                </div>
+                <div class="content-body">
+                    <!-- Dry-Run Tester -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Dry-Run Tester</div>
+                        </div>
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 14px;">
+                            Preview what will happen during a transfer WITHOUT actually moving any files. Perfect for testing before creating real transfers.
+                        </p>
+                        <div class="form-group">
+                            <label>Operation</label>
+                            <select id="test-operation">
+                                <option value="copy">Copy</option>
+                                <option value="sync">Sync</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Source Remote</label>
+                            <select id="test-source-remote">
+                                <option value="">Select remote...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Source Path</label>
+                            <input type="text" id="test-source-path" placeholder="folder/subfolder or leave blank for root">
+                        </div>
+                        <div class="form-group">
+                            <label>Destination Remote</label>
+                            <select id="test-dest-remote">
+                                <option value="">Select remote...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Destination Path</label>
+                            <input type="text" id="test-dest-path" placeholder="folder/subfolder or leave blank for root">
+                        </div>
+                        <button class="btn" onclick="runDryRun()">Run Dry-Run Test</button>
+                        <div id="dry-run-output" style="margin-top: 1rem; display: none;">
+                            <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 0.5rem;">Dry-Run Results:</h4>
+                            <div style="background: var(--bg-tertiary); border-radius: 8px; padding: 1rem; font-family: 'Monaco', monospace; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap;" id="dry-run-results"></div>
+                        </div>
+                    </div>
+
+                    <!-- Query Builder -->
+                    <div class="card" style="margin-top: 2rem;">
+                        <div class="card-header">
+                            <div class="card-title">Query Builder</div>
+                        </div>
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 14px;">
+                            Run read-only rclone commands to inspect remotes. No files will be modified.
+                        </p>
+                        <div class="form-group">
+                            <label>Remote</label>
+                            <select id="query-remote">
+                                <option value="">Select remote...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Path (optional)</label>
+                            <input type="text" id="query-path" placeholder="folder/subfolder or leave blank for root">
+                        </div>
+                        <div class="form-group">
+                            <label>Command</label>
+                            <select id="query-command">
+                                <option value="lsd">lsd - List directories</option>
+                                <option value="ls">ls - List all files and directories</option>
+                                <option value="lsl">lsl - List with details (size, modified)</option>
+                                <option value="lsf">lsf - List files only</option>
+                                <option value="size">size - Show total size</option>
+                                <option value="about">about - Show quota and usage</option>
+                                <option value="tree">tree - Show directory tree</option>
+                                <option value="cat">cat - Display file contents</option>
+                            </select>
+                        </div>
+                        <div id="query-file-input" class="form-group" style="display: none;">
+                            <label>File Name (required for cat)</label>
+                            <input type="text" id="query-filename" placeholder="example.txt">
+                        </div>
+                        <button class="btn btn-secondary" onclick="runQuery()">Run Query</button>
+                        <div id="query-output" style="margin-top: 1rem; display: none;">
+                            <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 0.5rem;">Query Results:</h4>
+                            <div style="background: var(--bg-tertiary); border-radius: 8px; padding: 1rem; font-family: 'Monaco', monospace; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap;" id="query-results"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -863,6 +1072,61 @@
                         <div style="display: flex; gap: 1rem;">
                             <button class="btn" onclick="saveSettings()">Save Settings</button>
                             <button class="btn btn-secondary" onclick="testEmail()">Test Email</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Webhook Notifications -->
+                    <div class="card" style="margin-top: 2rem;">
+                        <div class="card-header">
+                            <div class="card-title">Webhook Notifications</div>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="webhook-enabled" style="width: auto;">
+                                Enable webhook notifications
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Webhook Type</label>
+                            <select id="webhook-type" class="form-control">
+                                <option value="slack">Slack</option>
+                                <option value="teams">Microsoft Teams</option>
+                                <option value="discord">Discord</option>
+                                <option value="generic">Generic (JSON)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Webhook URL</label>
+                            <input type="url" id="webhook-url" placeholder="https://hooks.slack.com/services/...">
+                            <small style="display: block; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 12px;">
+                                <strong>Slack:</strong> Create an Incoming Webhook in your workspace<br>
+                                <strong>Teams:</strong> Add an Incoming Webhook connector to your channel<br>
+                                <strong>Discord:</strong> Create a Webhook in your channel settings
+                            </small>
+                        </div>
+                        
+                        <h4 style="margin: 2rem 0 1rem; font-size: 14px; font-weight: 600;">Webhook Notification Preferences</h4>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="webhook-notify-failure" style="width: auto;" checked>
+                                Notify on transfer failure
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="webhook-notify-success" style="width: auto;">
+                                Notify on transfer success
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="webhook-daily-report" style="width: auto;">
+                                Daily summary report (sent at midnight)
+                            </label>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="btn btn-secondary" onclick="testWebhook()">Test Webhook</button>
                         </div>
                     </div>
                 </div>
@@ -1005,6 +1269,18 @@
                         <div id="groups-list"></div>
                     </div>
 
+                    <!-- SSH Host Keys Management -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">SSH Host Keys</div>
+                            <button class="btn btn-small btn-secondary" onclick="refreshHostKeys()">Refresh</button>
+                        </div>
+                        <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 1rem;">
+                            Manage SSH host keys for SFTP remotes. Host keys are automatically scanned when creating SFTP remotes for security.
+                        </p>
+                        <div id="ssh-host-keys-list"></div>
+                    </div>
+
                     <!-- System Tools -->
                     <div class="card">
                         <div class="card-header">
@@ -1020,8 +1296,83 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Admin Shell -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Admin Shell</div>
+                        </div>
+                        <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 1rem;">
+                            ⚠️ <strong>Warning:</strong> Direct access to rclone commands. Use with caution. All commands are logged.
+                        </p>
+                        
+                        <div style="background: #1a1a1a; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; font-family: 'Monaco', 'Courier New', monospace; font-size: 13px;">
+                            <div style="color: #4CAF50; margin-bottom: 0.5rem;">
+                                <strong>Available Commands:</strong>
+                            </div>
+                            <div style="color: #ccc; line-height: 1.8;">
+                                • <code>rclone lsd remote:</code> - List directories<br>
+                                • <code>rclone ls remote:path</code> - List files<br>
+                                • <code>rclone size remote:path</code> - Calculate size<br>
+                                • <code>rclone copy source: dest:</code> - Copy files<br>
+                                • <code>rclone sync source: dest:</code> - Sync directories<br>
+                                • <code>rclone config dump</code> - Show config<br>
+                                • <code>rclone version</code> - Show version<br>
+                                • Full rclone documentation: <a href="https://rclone.org/commands/" target="_blank" style="color: #2196F3;">rclone.org/commands</a>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Command</label>
+                            <input type="text" id="shell-command" placeholder="rclone version" onkeypress="if(event.key==='Enter') runShellCommand()" autofocus>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                            <button class="btn" onclick="runShellCommand()">Execute</button>
+                            <button class="btn btn-secondary" onclick="clearShellOutput()">Clear Output</button>
+                        </div>
+                        
+                        <div id="shell-output" style="background: #000; border-radius: 8px; padding: 1rem; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px; color: #0f0; min-height: 300px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; display: none;"></div>
+                        
+                        <div id="shell-history" style="margin-top: 1rem; display: none;">
+                            <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 0.5rem; color: var(--text-secondary);">Command History</h4>
+                            <div id="shell-history-list" style="font-family: 'Monaco', monospace; font-size: 12px; color: var(--text-tertiary);"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Force Password Change Modal -->
+    <div id="force-password-change-modal" class="hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="background: var(--bg-secondary); border-radius: 12px; padding: 2rem; max-width: 500px; width: 90%; border: 2px solid var(--accent);">
+            <div style="text-align: center; margin-bottom: 1.5rem;">
+                <div style="font-size: 48px; margin-bottom: 0.5rem;"></div>
+                <h3 style="margin: 0; color: var(--accent);">Change Default Password</h3>
+                <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 14px;">
+                    For security, you must change the default password before continuing
+                </p>
+            </div>
+            
+            <div class="form-group">
+                <label>Current Password</label>
+                <input type="password" id="force-current-password" placeholder="admin" autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label>New Password (minimum 6 characters)</label>
+                <input type="password" id="force-new-password" placeholder="Enter new password">
+            </div>
+            
+            <div class="form-group">
+                <label>Confirm New Password</label>
+                <input type="password" id="force-confirm-password" placeholder="Confirm new password" onkeypress="if(event.key==='Enter') forceChangePassword()">
+            </div>
+            
+            <div id="force-password-error" style="color: var(--danger); font-size: 13px; margin-bottom: 1rem; text-align: center;"></div>
+            
+            <button class="btn" onclick="forceChangePassword()" style="width: 100%;">Change Password</button>
         </div>
     </div>
 
@@ -1096,12 +1447,76 @@
                 if (res.ok) {
                     token = data.token;
                     localStorage.setItem('token', token);
-                    showApp();
+                    
+                    // Check if password needs to be changed
+                    if (data.user.passwordChanged === false) {
+                        // Store current password for verification
+                        document.getElementById('force-current-password').value = password;
+                        document.getElementById('force-password-change-modal').classList.remove('hidden');
+                    } else {
+                        showApp();
+                    }
                 } else {
                     document.getElementById('login-error').textContent = data.error;
                 }
             } catch (err) {
                 document.getElementById('login-error').textContent = 'Connection failed';
+            }
+        }
+
+        async function forceChangePassword() {
+            const currentPassword = document.getElementById('force-current-password').value;
+            const newPassword = document.getElementById('force-new-password').value;
+            const confirmPassword = document.getElementById('force-confirm-password').value;
+            const errorDiv = document.getElementById('force-password-error');
+            
+            errorDiv.textContent = '';
+            
+            // Validation
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                errorDiv.textContent = 'All fields are required';
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                errorDiv.textContent = 'New password must be at least 6 characters';
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                errorDiv.textContent = 'Passwords do not match';
+                return;
+            }
+            
+            if (newPassword === currentPassword) {
+                errorDiv.textContent = 'New password must be different from current password';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/auth/change-password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ currentPassword, newPassword })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    // Password changed successfully
+                    document.getElementById('force-password-change-modal').classList.add('hidden');
+                    document.getElementById('force-current-password').value = '';
+                    document.getElementById('force-new-password').value = '';
+                    document.getElementById('force-confirm-password').value = '';
+                    showApp();
+                } else {
+                    errorDiv.textContent = data.error || 'Failed to change password';
+                }
+            } catch (err) {
+                errorDiv.textContent = 'Connection failed';
             }
         }
 
@@ -1211,6 +1626,7 @@
             if (tab === 'admin') {
                 loadUsers();
                 loadGroups();
+                refreshHostKeys();
             }
         }
         
@@ -1223,6 +1639,11 @@
             const type = document.getElementById('schedule-type').value;
             document.getElementById('schedule-once').classList.toggle('hidden', type !== 'once');
             document.getElementById('schedule-recurring').classList.toggle('hidden', type !== 'recurring');
+        }
+        
+        function toggleEncryption() {
+            const enabled = document.getElementById('encrypt-enabled').checked;
+            document.getElementById('encryption-options').classList.toggle('hidden', !enabled);
         }
 
         // ==================== ADMIN FUNCTIONS ====================
@@ -1358,12 +1779,12 @@
                 if (res.ok) {
                     hideCreateUser();
                     loadUsers();
-                    alert('✅ User created successfully!');
+                    alert('SUCCESS: User created successfully!');
                 } else {
-                    alert('❌ ' + (data.error || 'Failed to create user'));
+                    alert('ERROR: ' + (data.error || 'Failed to create user'));
                 }
             } catch (err) {
-                alert('❌ Failed to create user: ' + err.message);
+                alert('ERROR: Failed to create user: ' + err.message);
             }
         }
 
@@ -1376,9 +1797,9 @@
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 loadUsers();
-                alert('✅ User deleted');
+                alert('SUCCESS: User deleted');
             } catch (err) {
-                alert('❌ Failed to delete user');
+                alert('ERROR: Failed to delete user');
             }
         }
 
@@ -1460,14 +1881,14 @@
                 if (res.ok) {
                     hideEditUser();
                     loadUsers();
-                    alert('✅ User updated successfully!');
+                    alert('SUCCESS: User updated successfully!');
                 } else {
                     console.error('Update user error:', data);
-                    alert('❌ ' + (data.error || 'Failed to update user'));
+                    alert('ERROR: ' + (data.error || 'Failed to update user'));
                 }
             } catch (err) {
                 console.error('Update user exception:', err);
-                alert('❌ Failed to update user: ' + err.message);
+                alert('ERROR: Failed to update user: ' + err.message);
             }
         }
 
@@ -1562,12 +1983,12 @@
                 if (res.ok) {
                     hideCreateGroup();
                     loadGroups();
-                    alert(`✅ Group "${name}" created with ${role.replace('_', ' ')} permissions!`);
+                    alert(`SUCCESS: Group "${name}" created with ${role.replace('_', ' ')} permissions!`);
                 } else {
-                    alert('❌ ' + (data.error || 'Failed to create group'));
+                    alert('ERROR: ' + (data.error || 'Failed to create group'));
                 }
             } catch (err) {
-                alert('❌ Failed to create group: ' + err.message);
+                alert('ERROR: Failed to create group: ' + err.message);
             }
         }
 
@@ -1581,9 +2002,9 @@
                 });
                 loadGroups();
                 loadUsers(); // Refresh users to show group changes
-                alert('✅ Group deleted');
+                alert('SUCCESS: Group deleted');
             } catch (err) {
-                alert('❌ Failed to delete group');
+                alert('ERROR: Failed to delete group');
             }
         }
 
@@ -1598,14 +2019,100 @@
                 const data = await res.json();
                 
                 if (res.ok) {
-                    alert(`✅ Cancelled ${data.count} stuck transfer(s)`);
+                    alert(`SUCCESS: Cancelled ${data.count} stuck transfer(s)`);
                     loadTransfers();
                     loadHistory();
                 } else {
-                    alert('❌ Failed to cancel stuck transfers');
+                    alert('ERROR: Failed to cancel stuck transfers');
                 }
             } catch (err) {
-                alert('❌ Failed to cancel stuck transfers');
+                alert('ERROR: Failed to cancel stuck transfers');
+            }
+        }
+
+        async function refreshHostKeys() {
+            if (!isAdmin) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/ssh-host-keys`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                const container = document.getElementById('ssh-host-keys-list');
+                if (!data.hostKeys || data.hostKeys.length === 0) {
+                    container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">No SFTP remotes with host keys found</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.hostKeys.map(hk => `
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                    <strong>${hk.name}</strong>
+                                    <span style="padding: 0.25rem 0.5rem; background: rgba(168, 85, 247, 0.2); color: rgb(168, 85, 247); border-radius: 4px; font-size: 11px;">SFTP</span>
+                                </div>
+                                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                                     ${hk.host}:${hk.port || 22} ·  ${hk.username || 'unknown'} · Owner: ${hk.owner}
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-tertiary); font-family: 'Monaco', monospace; max-width: 600px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    ${hk.ssh_host_key ? hk.ssh_host_key.split('\n')[0] : 'No host key'}...
+                                </div>
+                                <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 0.5rem;">
+                                    Added: ${new Date(hk.created_at).toLocaleString()}
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-small btn-secondary" onclick="rescanHostKey(${hk.id}, '${hk.name}')">Rescan</button>
+                                <button class="btn btn-small btn-danger" onclick="clearHostKey(${hk.id}, '${hk.name}')">Clear</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load SSH host keys:', err);
+            }
+        }
+
+        async function rescanHostKey(id, name) {
+            if (!confirm(`Rescan SSH host key for "${name}"?\n\nThis will connect to the server and update the stored host key.`)) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/ssh-host-keys/${id}/rescan`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    alert(`SUCCESS: Host key rescanned successfully for "${name}"`);
+                    refreshHostKeys();
+                } else {
+                    alert(`ERROR: ${data.error || 'Failed to rescan host key'}`);
+                }
+            } catch (err) {
+                alert('ERROR: Failed to rescan host key');
+            }
+        }
+
+        async function clearHostKey(id, name) {
+            if (!confirm(`Clear SSH host key for "${name}"?\n\nWARNING: WARNING: After clearing the host key, this remote will not be able to connect until the host key is rescanned.`)) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/ssh-host-keys/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.ok) {
+                    alert(`SUCCESS: Host key cleared for "${name}"`);
+                    refreshHostKeys();
+                } else {
+                    alert('ERROR: Failed to clear host key');
+                }
+            } catch (err) {
+                alert('ERROR: Failed to clear host key');
             }
         }
 
@@ -1622,12 +2129,12 @@
                 
                 if (res.ok) {
                     loadScheduled();
-                    alert(`✅ Job ${enabled ? 'enabled' : 'disabled'}`);
+                    alert(`SUCCESS: Job ${enabled ? 'enabled' : 'disabled'}`);
                 } else {
-                    alert('❌ Failed to toggle job');
+                    alert('ERROR: Failed to toggle job');
                 }
             } catch (err) {
-                alert('❌ Failed to toggle job');
+                alert('ERROR: Failed to toggle job');
             }
         }
 
@@ -1647,12 +2154,12 @@
                 
                 if (res.ok) {
                     loadScheduled();
-                    alert('✅ Scheduled job deleted');
+                    alert('SUCCESS: Scheduled job deleted');
                 } else {
-                    alert('❌ Failed to delete job');
+                    alert('ERROR: Failed to delete job');
                 }
             } catch (err) {
-                alert('❌ Failed to delete job');
+                alert('ERROR: Failed to delete job');
             }
         }
 
@@ -1743,13 +2250,13 @@
                 if (res.ok) {
                     closeEditScheduleModal();
                     loadScheduled();
-                    alert('✅ Schedule updated successfully');
+                    alert('SUCCESS: Schedule updated successfully');
                 } else {
                     const data = await res.json();
-                    alert('❌ ' + (data.error || 'Failed to update schedule'));
+                    alert('ERROR: ' + (data.error || 'Failed to update schedule'));
                 }
             } catch (err) {
-                alert('❌ Failed to update schedule');
+                alert('ERROR: Failed to update schedule');
             }
         }
 
@@ -1906,9 +2413,31 @@
                 sourceSelect.innerHTML = '<option value="">Select remote...</option>';
                 destSelect.innerHTML = '<option value="">Select remote...</option>';
                 
+                // Populate Tests & Queries dropdowns
+                const testSourceSelect = document.getElementById('test-source-remote');
+                const testDestSelect = document.getElementById('test-dest-remote');
+                const queryRemoteSelect = document.getElementById('query-remote');
+                
+                if (testSourceSelect) testSourceSelect.innerHTML = '<option value="">Select remote...</option>';
+                if (testDestSelect) testDestSelect.innerHTML = '<option value="">Select remote...</option>';
+                if (queryRemoteSelect) queryRemoteSelect.innerHTML = '<option value="">Select remote...</option>';
+                
+                // Populate Decrypt dropdowns
+                const decryptSourceSelect = document.getElementById('decrypt-source-remote');
+                const decryptDestSelect = document.getElementById('decrypt-dest-remote');
+                
+                if (decryptSourceSelect) decryptSourceSelect.innerHTML = '<option value="">Select remote with encrypted files...</option>';
+                if (decryptDestSelect) decryptDestSelect.innerHTML = '<option value="">Select destination for decrypted files...</option>';
+                
                 data.remotes.forEach(remote => {
-                    sourceSelect.innerHTML += `<option value="${remote.name}">${remote.name} (${remote.type})</option>`;
-                    destSelect.innerHTML += `<option value="${remote.name}">${remote.name} (${remote.type})</option>`;
+                    const option = `<option value="${remote.name}">${remote.name} (${remote.type})</option>`;
+                    sourceSelect.innerHTML += option;
+                    destSelect.innerHTML += option;
+                    if (testSourceSelect) testSourceSelect.innerHTML += option;
+                    if (testDestSelect) testDestSelect.innerHTML += option;
+                    if (queryRemoteSelect) queryRemoteSelect.innerHTML += option;
+                    if (decryptSourceSelect) decryptSourceSelect.innerHTML += option;
+                    if (decryptDestSelect) decryptDestSelect.innerHTML += option;
                 });
                 
                 // Update remotes list
@@ -1983,9 +2512,9 @@
                     document.getElementById('provider').value = '';
                     document.getElementById('provider-config').innerHTML = '';
                     loadRemotes();
-                    alert(data.message || '✅ Remote added successfully!');
+                    alert(data.message || 'SUCCESS: Remote added successfully!');
                 } else {
-                    let errorMsg = '❌ Failed to add remote\n\n';
+                    let errorMsg = 'ERROR: Failed to add remote\n\n';
                     
                     if (response.status === 403) {
                         errorMsg += 'Permission Denied: You do not have permission to manage remotes.\n\nContact an administrator to upgrade your role to Power User or Admin.';
@@ -1999,7 +2528,7 @@
             } catch (err) {
                 console.error('[addRemote] Fetch error:', err);
                 
-                let errorMsg = '❌ Connection Error\n\n';
+                let errorMsg = 'ERROR: Connection Error\n\n';
                 
                 if (err.message === 'Failed to fetch') {
                     errorMsg += 'Cannot connect to server. Possible causes:\n\n';
@@ -2039,7 +2568,7 @@
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
-                alert(data.success ? '✅ Connection successful!' : '❌ ' + data.error);
+                alert(data.success ? 'SUCCESS: Connection successful!' : 'ERROR: ' + data.error);
             } catch (err) {
                 alert('Test failed');
             }
@@ -2083,7 +2612,7 @@
                         </div>
                         ${t.schedule_type ? `
                             <div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(255, 107, 53, 0.1); border-radius: 6px; font-size: 12px;">
-                                <strong>📅 Scheduled:</strong> ${t.schedule_type === 'once' ? 'One-time' : t.schedule_interval} 
+                                <strong> Scheduled:</strong> ${t.schedule_type === 'once' ? 'One-time' : t.schedule_interval} 
                                 ${t.next_run ? '• Next run: ' + new Date(t.next_run).toLocaleString() : ''}
                             </div>
                         ` : ''}
@@ -2095,12 +2624,8 @@
                                 <span><strong>${t.progress.transferred || '0 B'}</strong> transferred</span>
                                 <span>${t.progress.speed || '0 B/s'}</span>
                                 <span>ETA: ${t.progress.eta || 'calculating...'}</span>
+                                <span>${t.progress.percentage ? t.progress.percentage + '% complete' : 'calculating...'}</span>
                             </div>
-                            ${t.progress.percentage ? `
-                                <div style="text-align: center; margin-top: 0.5rem; font-size: 11px; color: var(--text-tertiary);">
-                                    ${t.progress.percentage}% complete
-                                </div>
-                            ` : ''}
                         ` : ''}
                         ${t.error ? `<div class="transfer-error" style="${t.status === 'completed' ? 'background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: var(--success);' : ''}">${t.error}</div>` : ''}
                     </div>
@@ -2241,6 +2766,19 @@
                 return;
             }
             
+            // Check for egress warning (only for cloud providers with egress charges)
+            const sourceRemoteData = providersData ? await getRemoteInfo(sourceRemote) : null;
+            const hasEgressCharges = sourceRemoteData && ['s3', 'google cloud storage', 'azureblob'].includes(sourceRemoteData.type);
+            
+            // Show egress warning for providers that charge for downloads
+            if (hasEgressCharges && !sessionStorage.getItem(`egress_warning_dismissed_${sourceRemote}`)) {
+                if (!confirm('⚠️ EGRESS COST WARNING\n\nYou are transferring data FROM a cloud provider that charges for data egress (downloads):\n\n• Amazon S3: ~$0.09 per GB\n• Google Cloud: ~$0.12 per GB\n• Azure: ~$0.087 per GB\n\nCloudflare R2 and Backblaze B2 do NOT charge egress fees.\n\nClick OK to continue or Cancel to abort this transfer.')) {
+                    return;
+                }
+                // Remember dismissal for this session
+                sessionStorage.setItem(`egress_warning_dismissed_${sourceRemote}`, 'true');
+            }
+            
             // Build schedule object if enabled
             let schedule = null;
             if (document.getElementById('schedule-enabled').checked) {
@@ -2265,6 +2803,35 @@
                 }
             }
             
+            // Build encryption object if enabled
+            let encryption = null;
+            if (document.getElementById('encrypt-enabled').checked) {
+                const password = document.getElementById('encrypt-password').value;
+                const confirmPassword = document.getElementById('encrypt-password-confirm').value;
+                
+                // If password provided, validate it
+                if (password || confirmPassword) {
+                    if (password !== confirmPassword) {
+                        alert('Encryption passwords do not match!');
+                        return;
+                    }
+                    if (password.length < 8) {
+                        alert('Encryption password must be at least 8 characters long');
+                        return;
+                    }
+                    encryption = {
+                        enabled: true,
+                        password: password
+                    };
+                } else {
+                    // Auto-generate password
+                    encryption = {
+                        enabled: true,
+                        password: null // Backend will generate
+                    };
+                }
+            }
+            
             try {
                 const response = await fetch(`${API_BASE}/transfers`, {
                     method: 'POST',
@@ -2278,7 +2845,8 @@
                         sourcePath,
                         destRemote,
                         destPath,
-                        schedule
+                        schedule,
+                        encryption
                     })
                 });
                 
@@ -2287,27 +2855,46 @@
                 if (response.ok) {
                     // Reset form
                     document.getElementById('schedule-enabled').checked = false;
+                    document.getElementById('encrypt-enabled').checked = false;
                     toggleSchedule();
+                    toggleEncryption();
                     
                     loadTransfers();
                     
-                    if (schedule && schedule.enabled) {
-                        alert(`✅ Transfer scheduled successfully! ${schedule.type === 'once' ? 'Will run at specified time.' : 'Will run ' + schedule.interval + '.'}`);
+                    // Show encryption password if generated
+                    if (encryption && encryption.enabled && data.encryption_password) {
+                        alert(`SUCCESS: Transfer created!\n\n🔒 ENCRYPTION PASSWORD (SAVE THIS!):\n${data.encryption_password}\n\nYou will need this password to decrypt your files later.`);
+                    } else if (schedule && schedule.enabled) {
+                        alert(`SUCCESS: Transfer scheduled successfully! ${schedule.type === 'once' ? 'Will run at specified time.' : 'Will run ' + schedule.interval + '.'}`);
                     }
                 } else {
                     // Show user-friendly error messages
                     if (response.status === 403) {
                         if (data.error && data.error.includes('Sync operations')) {
-                            alert('❌ Permission Denied\n\nYou do not have permission to create sync transfers. Your role only allows copy operations.\n\nPlease select "copy" as the operation type or contact an administrator to upgrade your permissions.');
+                            alert('ERROR: Permission Denied\n\nYou do not have permission to create sync transfers. Your role only allows copy operations.\n\nPlease select "copy" as the operation type or contact an administrator to upgrade your permissions.');
                         } else {
-                            alert('❌ Permission Denied\n\n' + (data.error || 'You do not have permission to perform this action.'));
+                            alert('ERROR: Permission Denied\n\n' + (data.error || 'You do not have permission to perform this action.'));
                         }
                     } else {
-                        alert('❌ Failed to create transfer: ' + (data.error || 'Unknown error'));
+                        alert('ERROR: Failed to create transfer: ' + (data.error || 'Unknown error'));
                     }
                 }
             } catch (err) {
-                alert('❌ Failed to start transfer: ' + err.message);
+                alert('ERROR: Failed to start transfer: ' + err.message);
+            }
+        }
+        
+        // Helper function to get remote info
+        async function getRemoteInfo(remoteName) {
+            try {
+                const res = await fetch(`${API_BASE}/remotes`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                return data.remotes.find(r => r.name === remoteName);
+            } catch (err) {
+                console.error('Failed to get remote info:', err);
+                return null;
             }
         }
         
@@ -2340,6 +2927,478 @@
                 alert('Failed to delete transfer');
             }
         }
+        
+        // ==================== DECRYPTION FUNCTIONS ====================
+        
+        async function startDecryption() {
+            const sourceRemote = document.getElementById('decrypt-source-remote').value;
+            const sourcePath = document.getElementById('decrypt-source-path').value || '';
+            const password = document.getElementById('decrypt-password').value;
+            const destRemote = document.getElementById('decrypt-dest-remote').value;
+            const destPath = document.getElementById('decrypt-dest-path').value || '';
+            
+            if (!sourceRemote || !destRemote) {
+                alert('Please select source and destination remotes');
+                return;
+            }
+            
+            if (!password) {
+                alert('Please enter the decryption password');
+                return;
+            }
+            
+            if (!confirm(`Start decryption?\n\nEncrypted files from:\n${sourceRemote}:${sourcePath || '/'}\n\nWill be decrypted to:\n${destRemote}:${destPath || '/'}\n\nThis will create a new transfer.`)) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/decrypt`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        sourceRemote,
+                        sourcePath,
+                        password,
+                        destRemote,
+                        destPath
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    alert(`SUCCESS: Decryption started!\n\nTransfer ID: ${data.transfer_id}\n\nCheck "Active Transfers" below to monitor progress.`);
+                    
+                    // Clear password field for security
+                    document.getElementById('decrypt-password').value = '';
+                    
+                    // Reload transfers to show new decryption transfer
+                    loadTransfers();
+                } else {
+                    alert('ERROR: ' + (data.error || 'Failed to start decryption'));
+                }
+            } catch (err) {
+                alert('ERROR: ' + err.message);
+            }
+        }
+        
+        async function testDecryptPassword() {
+            const sourceRemote = document.getElementById('decrypt-source-remote').value;
+            const sourcePath = document.getElementById('decrypt-source-path').value || '';
+            const password = document.getElementById('decrypt-password').value;
+            
+            if (!sourceRemote) {
+                alert('Please select source remote');
+                return;
+            }
+            
+            if (!password) {
+                alert('Please enter password to test');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/decrypt/test`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        sourceRemote,
+                        sourcePath,
+                        password
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    if (data.success) {
+                        alert(`✓ Password Test PASSED!\n\nThis password can decrypt files from:\n${sourceRemote}:${sourcePath || '/'}\n\nFiles found: ${data.file_count || 'multiple'}`);
+                    } else {
+                        alert(`✗ Password Test FAILED\n\n${data.error || 'Cannot decrypt with this password'}\n\nMake sure:\n• Password is correct\n• Source path contains encrypted files\n• Files were encrypted with this password`);
+                    }
+                } else {
+                    alert('ERROR: ' + (data.error || 'Failed to test password'));
+                }
+            } catch (err) {
+                alert('ERROR: ' + err.message);
+            }
+        }
+        
+        // Tests & Queries Functions
+        async function runDryRun() {
+            const operation = document.getElementById('test-operation').value;
+            const sourceRemote = document.getElementById('test-source-remote').value;
+            const sourcePath = document.getElementById('test-source-path').value;
+            const destRemote = document.getElementById('test-dest-remote').value;
+            const destPath = document.getElementById('test-dest-path').value;
+            
+            if (!sourceRemote || !destRemote) {
+                alert('Please select source and destination remotes');
+                return;
+            }
+            
+            const outputDiv = document.getElementById('dry-run-output');
+            const resultsDiv = document.getElementById('dry-run-results');
+            
+            outputDiv.style.display = 'block';
+            resultsDiv.textContent = 'Running dry-run test...\n\nThis may take a moment depending on the number of files.\n';
+            
+            try {
+                const response = await fetch(`${API_BASE}/tests/dry-run`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        operation,
+                        sourceRemote,
+                        sourcePath,
+                        destRemote,
+                        destPath
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultsDiv.textContent = data.output || 'Dry-run completed successfully!\n\n' + (data.summary || 'No changes detected.');
+                } else {
+                    resultsDiv.textContent = 'ERROR: ' + (data.error || 'Failed to run dry-run test');
+                }
+            } catch (err) {
+                resultsDiv.textContent = 'ERROR: ' + err.message;
+            }
+        }
+        
+        async function runQuery() {
+            const remote = document.getElementById('query-remote').value;
+            const path = document.getElementById('query-path').value;
+            const command = document.getElementById('query-command').value;
+            const filename = document.getElementById('query-filename').value;
+            
+            if (!remote) {
+                alert('Please select a remote');
+                return;
+            }
+            
+            if (command === 'cat' && !filename) {
+                alert('Please enter a filename for the cat command');
+                return;
+            }
+            
+            const outputDiv = document.getElementById('query-output');
+            const resultsDiv = document.getElementById('query-results');
+            
+            outputDiv.style.display = 'block';
+            resultsDiv.textContent = 'Running query...\n';
+            
+            try {
+                const response = await fetch(`${API_BASE}/tests/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        remote,
+                        path,
+                        command,
+                        filename
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultsDiv.textContent = data.output || 'Query completed successfully!';
+                } else {
+                    resultsDiv.textContent = 'ERROR: ' + (data.error || 'Failed to run query');
+                }
+            } catch (err) {
+                resultsDiv.textContent = 'ERROR: ' + err.message;
+            }
+        }
+        
+        // ==================== ADMIN SHELL FUNCTIONS ====================
+        
+        let shellHistory = [];
+        
+        async function runShellCommand() {
+            const commandInput = document.getElementById('shell-command');
+            const command = commandInput.value.trim();
+            
+            if (!command) {
+                alert('Please enter a command');
+                return;
+            }
+            
+            // Show output div
+            const outputDiv = document.getElementById('shell-output');
+            outputDiv.style.display = 'block';
+            
+            // Add command to output
+            const timestamp = new Date().toLocaleTimeString();
+            outputDiv.textContent += `\n[${timestamp}] $ ${command}\n`;
+            
+            // Scroll to bottom
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/shell`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ command })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    // Display output
+                    outputDiv.textContent += data.output || '(no output)\n';
+                    
+                    // Add to history
+                    shellHistory.push({
+                        command,
+                        timestamp,
+                        output: data.output,
+                        exit_code: data.exit_code
+                    });
+                    
+                    // Update history display
+                    updateShellHistory();
+                    
+                    // Clear input
+                    commandInput.value = '';
+                } else {
+                    outputDiv.textContent += `ERROR: ${data.error || 'Command failed'}\n`;
+                }
+                
+                // Scroll to bottom
+                outputDiv.scrollTop = outputDiv.scrollHeight;
+            } catch (err) {
+                outputDiv.textContent += `ERROR: ${err.message}\n`;
+                outputDiv.scrollTop = outputDiv.scrollHeight;
+            }
+        }
+        
+        function clearShellOutput() {
+            const outputDiv = document.getElementById('shell-output');
+            outputDiv.textContent = '';
+            outputDiv.style.display = 'none';
+            shellHistory = [];
+            updateShellHistory();
+        }
+        
+        function updateShellHistory() {
+            const historyDiv = document.getElementById('shell-history');
+            const historyList = document.getElementById('shell-history-list');
+            
+            if (shellHistory.length === 0) {
+                historyDiv.style.display = 'none';
+                return;
+            }
+            
+            historyDiv.style.display = 'block';
+            historyList.innerHTML = shellHistory.slice(-10).reverse().map((item, i) => `
+                <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px;">
+                    <div style="color: var(--text-secondary);">[${item.timestamp}] <code>${item.command}</code></div>
+                    <div style="color: ${item.exit_code === 0 ? '#4CAF50' : '#f44336'}; font-size: 11px;">Exit code: ${item.exit_code}</div>
+                </div>
+            `).join('');
+        }
+        
+        // ==================== DECRYPTION FUNCTIONS ====================
+        
+        async function startDecryption() {
+            const sourceRemote = document.getElementById('decrypt-source-remote').value;
+            const sourcePath = document.getElementById('decrypt-source-path').value;
+            const password = document.getElementById('decrypt-password').value;
+            const destRemote = document.getElementById('decrypt-dest-remote').value;
+            const destPath = document.getElementById('decrypt-dest-path').value;
+            
+            if (!sourceRemote || !destRemote) {
+                alert('Please select source and destination remotes');
+                return;
+            }
+            
+            if (!password) {
+                alert('Please enter the decryption password');
+                return;
+            }
+            
+            if (!confirm('Start decryption?\n\nThis will create a transfer to decrypt your files from:\n' + 
+                        sourceRemote + ':' + (sourcePath || '/') + '\n\nto:\n' + 
+                        destRemote + ':' + (destPath || '/'))) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/decrypt`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        sourceRemote,
+                        sourcePath,
+                        password,
+                        destRemote,
+                        destPath
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    // Show progress card
+                    const progressCard = document.getElementById('decrypt-progress-card');
+                    const progressContent = document.getElementById('decrypt-progress-content');
+                    
+                    progressCard.style.display = 'block';
+                    progressContent.innerHTML = `
+                        <div style="padding: 1rem;">
+                            <div style="margin-bottom: 1rem;">
+                                <strong>Decryption Started</strong>
+                                <p style="margin: 0.5rem 0; color: var(--text-secondary); font-size: 13px;">
+                                    Transfer ID: ${data.transfer_id}
+                                </p>
+                            </div>
+                            <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; font-family: 'Monaco', monospace; font-size: 12px;">
+                                Decrypting: ${sourceRemote}:${sourcePath || '/'}<br>
+                                To: ${destRemote}:${destPath || '/'}<br>
+                                Status: <span style="color: var(--warning);">In Progress...</span>
+                            </div>
+                            <p style="margin-top: 1rem; font-size: 13px; color: var(--text-secondary);">
+                                Switch to the "Transfers" tab to monitor progress. Decrypted files will appear in your destination.
+                            </p>
+                        </div>
+                    `;
+                    
+                    // Clear form
+                    document.getElementById('decrypt-password').value = '';
+                    
+                    // Refresh history
+                    setTimeout(() => loadDecryptionHistory(), 1000);
+                    
+                    alert('SUCCESS: Decryption transfer started!\n\nCheck the Transfers tab to monitor progress.');
+                } else {
+                    alert('ERROR: ' + (data.error || 'Failed to start decryption'));
+                }
+            } catch (err) {
+                alert('ERROR: ' + err.message);
+            }
+        }
+        
+        async function testDecryptPassword() {
+            const sourceRemote = document.getElementById('decrypt-source-remote').value;
+            const sourcePath = document.getElementById('decrypt-source-path').value;
+            const password = document.getElementById('decrypt-password').value;
+            
+            if (!sourceRemote) {
+                alert('Please select a source remote');
+                return;
+            }
+            
+            if (!password) {
+                alert('Please enter a password to test');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/decrypt/test`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        sourceRemote,
+                        sourcePath,
+                        password
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (res.ok) {
+                    if (data.success) {
+                        alert('✓ Password Test Successful!\n\nThis password can decrypt files from this location.\n\nFiles found: ' + data.file_count);
+                    } else {
+                        alert('✗ Password Test Failed\n\n' + (data.error || 'Unable to decrypt with this password'));
+                    }
+                } else {
+                    alert('ERROR: ' + (data.error || 'Failed to test password'));
+                }
+            } catch (err) {
+                alert('ERROR: ' + err.message);
+            }
+        }
+        
+        async function loadDecryptionHistory() {
+            try {
+                const res = await fetch(`${API_BASE}/decrypt/history`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                const container = document.getElementById('decrypt-history-list');
+                
+                if (!data.history || data.history.length === 0) {
+                    container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-tertiary);">No decryption history yet</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.history.map(item => `
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; margin-bottom: 0.5rem;">
+                                    🔓 ${item.source_remote}:${item.source_path || '/'} → ${item.dest_remote}:${item.dest_path || '/'}
+                                </div>
+                                <div style="font-size: 13px; color: var(--text-secondary);">
+                                    Started: ${new Date(item.created_at).toLocaleString()}
+                                    ${item.completed_at ? ' • Completed: ' + new Date(item.completed_at).toLocaleString() : ''}
+                                </div>
+                            </div>
+                            <div>
+                                <span style="padding: 0.25rem 0.75rem; background: ${item.status === 'completed' ? 'rgba(76, 175, 80, 0.2)' : item.status === 'failed' ? 'rgba(244, 67, 54, 0.2)' : 'rgba(255, 152, 0, 0.2)'}; color: ${item.status === 'completed' ? '#4CAF50' : item.status === 'failed' ? '#f44336' : '#FF9800'}; border-radius: 4px; font-size: 11px; text-transform: uppercase;">
+                                    ${item.status}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load decryption history:', err);
+            }
+        }
+        
+        // Show/hide filename input for cat command
+        document.addEventListener('DOMContentLoaded', () => {
+            const queryCommand = document.getElementById('query-command');
+            const queryFileInput = document.getElementById('query-file-input');
+            
+            if (queryCommand && queryFileInput) {
+                queryCommand.addEventListener('change', (e) => {
+                    if (e.target.value === 'cat') {
+                        queryFileInput.style.display = 'block';
+                    } else {
+                        queryFileInput.style.display = 'none';
+                    }
+                });
+            }
+        });
 
         async function loadSettings() {
             try {
@@ -2357,9 +3416,19 @@
                     document.getElementById('smtp-port').value = s.smtp_port || 587;
                     document.getElementById('smtp-user').value = s.smtp_user || '';
                     document.getElementById('smtp-pass').value = s.smtp_pass || '';
+                    document.getElementById('webhook-enabled').checked = s.webhook_enabled || false;
+                    document.getElementById('webhook-url').value = s.webhook_url || '';
+                    document.getElementById('webhook-type').value = s.webhook_type || 'slack';
+                    
+                    // Email notification preferences
                     document.getElementById('notify-failure').checked = s.notify_on_failure !== false;
                     document.getElementById('notify-success').checked = s.notify_on_success || false;
                     document.getElementById('daily-report').checked = s.daily_report || false;
+                    
+                    // Webhook notification preferences
+                    document.getElementById('webhook-notify-failure').checked = s.webhook_notify_on_failure !== false;
+                    document.getElementById('webhook-notify-success').checked = s.webhook_notify_on_success || false;
+                    document.getElementById('webhook-daily-report').checked = s.webhook_daily_report || false;
                 }
             } catch (err) {
                 console.error('Failed to load settings:', err);
@@ -2376,9 +3445,15 @@
                     smtp_port: parseInt(document.getElementById('smtp-port').value),
                     smtp_user: document.getElementById('smtp-user').value,
                     smtp_pass: document.getElementById('smtp-pass').value,
+                    webhook_enabled: document.getElementById('webhook-enabled').checked,
+                    webhook_url: document.getElementById('webhook-url').value,
+                    webhook_type: document.getElementById('webhook-type').value,
                     notify_on_failure: document.getElementById('notify-failure').checked,
                     notify_on_success: document.getElementById('notify-success').checked,
-                    daily_report: document.getElementById('daily-report').checked
+                    daily_report: document.getElementById('daily-report').checked,
+                    webhook_notify_on_failure: document.getElementById('webhook-notify-failure').checked,
+                    webhook_notify_on_success: document.getElementById('webhook-notify-success').checked,
+                    webhook_daily_report: document.getElementById('webhook-daily-report').checked
                 };
                 
                 await fetch(`${API_BASE}/notifications/settings`, {
@@ -2390,9 +3465,9 @@
                     body: JSON.stringify(settings)
                 });
                 
-                alert('✅ Settings saved successfully!');
+                alert('SUCCESS: Settings saved successfully!');
             } catch (err) {
-                alert('❌ Failed to save settings');
+                alert('ERROR: Failed to save settings');
             }
         }
 
@@ -2405,12 +3480,37 @@
                 const data = await res.json();
                 
                 if (res.ok) {
-                    alert('✅ Test email sent! Check your inbox.');
+                    alert('SUCCESS: Test email sent! Check your inbox.');
                 } else {
-                    alert('❌ ' + data.error);
+                    alert('ERROR: ' + data.error);
                 }
             } catch (err) {
-                alert('❌ Failed to send test email');
+                alert('ERROR: Failed to send test email');
+            }
+        }
+        
+        async function testWebhook() {
+            try {
+                const res = await fetch(`${API_BASE}/notifications/test-webhook`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({
+                        webhook_url: document.getElementById('webhook-url').value,
+                        webhook_type: document.getElementById('webhook-type').value
+                    })
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    alert('SUCCESS: Test webhook sent successfully!');
+                } else {
+                    alert('ERROR: ' + data.error);
+                }
+            } catch (err) {
+                alert('ERROR: Failed to send test webhook');
             }
         }
 
