@@ -13,7 +13,7 @@
 - Added note directing users to check their provider's current pricing
 
 **Files Modified:**
-- `backend/index.html` (line ~2775)
+- `backend/index.html` (egress warning dialog in transfer creation form)
 
 ---
 

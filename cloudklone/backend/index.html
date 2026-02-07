@@ -667,7 +667,7 @@
                                 </div>
                             </div>
                         </div>
-                        <button class="btn" onclick="startTransfer()">Start Transfer</button>
+                        <button id="start-transfer-btn" class="btn" onclick="startTransfer()">Start Transfer</button>
                     </div>
 
                     <h3 style="margin: 2rem 0 1rem; font-size: 18px; font-weight: 600;">Active Transfers</h3>
@@ -1067,29 +1067,6 @@
                         </div>
                         <h4 style="margin: 2rem 0 1rem; font-size: 14px; font-weight: 600;">Notification Preferences</h4>
                         <div class="form-group">
-                            <label>Timezone for Daily Reports</label>
-                            <select id="timezone" class="form-control">
-                                <option value="America/New_York">Eastern Time (ET)</option>
-                                <option value="America/Chicago">Central Time (CT)</option>
-                                <option value="America/Denver">Mountain Time (MT)</option>
-                                <option value="America/Los_Angeles">Pacific Time (PT)</option>
-                                <option value="America/Phoenix">Arizona (MST - No DST)</option>
-                                <option value="America/Anchorage">Alaska Time (AKT)</option>
-                                <option value="Pacific/Honolulu">Hawaii Time (HST)</option>
-                                <option value="Europe/London">London (GMT/BST)</option>
-                                <option value="Europe/Paris">Paris (CET/CEST)</option>
-                                <option value="Europe/Berlin">Berlin (CET/CEST)</option>
-                                <option value="Asia/Tokyo">Tokyo (JST)</option>
-                                <option value="Asia/Shanghai">Shanghai (CST)</option>
-                                <option value="Asia/Dubai">Dubai (GST)</option>
-                                <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
-                                <option value="UTC">UTC (Universal Time)</option>
-                            </select>
-                            <small style="display: block; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 12px;">
-                                Daily reports will be sent at midnight in your selected timezone
-                            </small>
-                        </div>
-                        <div class="form-group">
                             <label style="display: flex; align-items: center; gap: 0.5rem;">
                                 <input type="checkbox" id="notify-failure" style="width: auto;" checked>
                                 Notify on transfer failure
@@ -1335,6 +1312,42 @@
                         </div>
                     </div>
                     
+                    <!-- System Settings -->
+                    <div class="card" style="margin-top: 2rem;">
+                        <div class="card-header">
+                            <div class="card-title">System Settings</div>
+                        </div>
+                        <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 1rem;">
+                            Configure system-wide settings that apply to all users
+                        </p>
+                        
+                        <div class="form-group">
+                            <label>System Timezone for Daily Reports</label>
+                            <select id="system-timezone" class="form-control">
+                                <option value="America/New_York">Eastern Time (ET)</option>
+                                <option value="America/Chicago">Central Time (CT)</option>
+                                <option value="America/Denver">Mountain Time (MT)</option>
+                                <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                                <option value="America/Phoenix">Arizona (MST - No DST)</option>
+                                <option value="America/Anchorage">Alaska Time (AKT)</option>
+                                <option value="Pacific/Honolulu">Hawaii Time (HST)</option>
+                                <option value="Europe/London">London (GMT/BST)</option>
+                                <option value="Europe/Paris">Paris (CET/CEST)</option>
+                                <option value="Europe/Berlin">Berlin (CET/CEST)</option>
+                                <option value="Asia/Tokyo">Tokyo (JST)</option>
+                                <option value="Asia/Shanghai">Shanghai (CST)</option>
+                                <option value="Asia/Dubai">Dubai (GST)</option>
+                                <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
+                                <option value="UTC">UTC (Universal Time)</option>
+                            </select>
+                            <small style="display: block; margin-top: 0.5rem; color: var(--text-tertiary); font-size: 12px;">
+                                All daily reports (email and webhook) will be sent at midnight in this timezone
+                            </small>
+                        </div>
+                        
+                        <button class="btn" onclick="saveSystemSettings()">Save System Settings</button>
+                    </div>
+
                     <!-- Admin Shell -->
                     <div class="card">
                         <div class="card-header">
@@ -1682,6 +1695,7 @@
                 loadUsers();
                 loadGroups();
                 refreshHostKeys();
+                loadSystemSettings();
             }
         }
         
@@ -2810,16 +2824,23 @@
         }
 
         async function startTransfer() {
-            const operation = document.getElementById('operation').value;
-            const sourceRemote = document.getElementById('source-remote').value;
-            const sourcePath = document.getElementById('source-path').value;
-            const destRemote = document.getElementById('dest-remote').value;
-            const destPath = document.getElementById('dest-path').value;
+            // Prevent double-click
+            const btn = document.getElementById('start-transfer-btn');
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.textContent = 'Creating Transfer...';
             
-            if (!sourceRemote || !destRemote) {
-                alert('Please select source and destination remotes');
-                return;
-            }
+            try {
+                const operation = document.getElementById('operation').value;
+                const sourceRemote = document.getElementById('source-remote').value;
+                const sourcePath = document.getElementById('source-path').value;
+                const destRemote = document.getElementById('dest-remote').value;
+                const destPath = document.getElementById('dest-path').value;
+                
+                if (!sourceRemote || !destRemote) {
+                    alert('Please select source and destination remotes');
+                    return;
+                }
             
             // Check for egress warning (only for cloud providers with egress charges)
             const sourceRemoteData = providersData ? await getRemoteInfo(sourceRemote) : null;
@@ -2936,6 +2957,10 @@
                 }
             } catch (err) {
                 alert('ERROR: Failed to start transfer: ' + err.message);
+            } finally {
+                // Re-enable button
+                btn.disabled = false;
+                btn.textContent = 'Start Transfer';
             }
         }
         
@@ -3483,9 +3508,6 @@
                     document.getElementById('webhook-url').value = s.webhook_url || '';
                     document.getElementById('webhook-type').value = s.webhook_type || 'slack';
                     
-                    // Timezone
-                    document.getElementById('timezone').value = s.timezone || 'UTC';
-                    
                     // Email notification preferences
                     document.getElementById('notify-failure').checked = s.notify_on_failure !== false;
                     document.getElementById('notify-success').checked = s.notify_on_success || false;
@@ -3514,7 +3536,6 @@
                     webhook_enabled: document.getElementById('webhook-enabled').checked,
                     webhook_url: document.getElementById('webhook-url').value,
                     webhook_type: document.getElementById('webhook-type').value,
-                    timezone: document.getElementById('timezone').value,
                     notify_on_failure: document.getElementById('notify-failure').checked,
                     notify_on_success: document.getElementById('notify-success').checked,
                     daily_report: document.getElementById('daily-report').checked,
@@ -3535,6 +3556,64 @@
                 alert('SUCCESS: Settings saved successfully!');
             } catch (err) {
                 alert('ERROR: Failed to save settings');
+            }
+        }
+
+        async function loadSystemSettings() {
+            try {
+                const res = await fetch(`${API_BASE}/system/settings`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (data.settings && data.settings.timezone) {
+                    // Use saved timezone
+                    document.getElementById('system-timezone').value = data.settings.timezone;
+                } else {
+                    // Auto-detect browser timezone for better UX
+                    try {
+                        const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                        const timezoneSelect = document.getElementById('system-timezone');
+                        
+                        // Check if browser timezone is in our list
+                        const options = Array.from(timezoneSelect.options);
+                        const matchingOption = options.find(opt => opt.value === browserTimezone);
+                        
+                        if (matchingOption) {
+                            // Exact match - use it
+                            timezoneSelect.value = browserTimezone;
+                            console.log(`Auto-detected timezone: ${browserTimezone}`);
+                        } else {
+                            // No exact match - default to UTC
+                            timezoneSelect.value = 'UTC';
+                        }
+                    } catch (tzError) {
+                        // Browser doesn't support Intl or other error - default to UTC
+                        console.warn('Could not detect browser timezone:', tzError);
+                        document.getElementById('system-timezone').value = 'UTC';
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load system settings:', err);
+            }
+        }
+
+        async function saveSystemSettings() {
+            try {
+                const timezone = document.getElementById('system-timezone').value;
+                
+                await fetch(`${API_BASE}/system/settings`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ timezone })
+                });
+                
+                alert('SUCCESS: System settings saved successfully!');
+            } catch (err) {
+                alert('ERROR: Failed to save system settings');
             }
         }
 
