@@ -8,14 +8,12 @@ const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
 
-// Public key for license validation (embedded)
-const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwill_be_generated
------END PUBLIC KEY-----`;
+// Note: License validation is currently disabled (all features enabled by edition only)
+// If implementing license validation, add proper RSA public key here
 
 class EditionManager {
   constructor() {
-    this.edition = process.env.EDITION || 'community';  // Default to enterprise for our packages
+    this.edition = process.env.EDITION || 'enterprise';  // Default to enterprise for our packages
     this.licenseKey = process.env.LICENSE_KEY;
     this.features = null;
     this.initialized = false;

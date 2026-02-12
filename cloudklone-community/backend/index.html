@@ -697,11 +697,11 @@
                 <div class="nav-item" onclick="showTab('scheduled')">Scheduled</div>
                 <div class="nav-item" onclick="showTab('tests')">Tests & Queries</div>
                 <div id="remotes-nav" class="nav-item" onclick="showTab('remotes')">Remotes</div>
+                <div id="compliance-nav" class="nav-item hidden" onclick="showTab('compliance')">Compliance</div>
+                <div id="ai-nav" class="nav-item hidden" onclick="showTab('ai')">AI Assistant</div>
                 <div id="settings-nav" class="nav-item" onclick="showTab('settings')">Settings</div>
                 <div id="admin-nav" class="nav-item hidden" onclick="showTab('admin')">Admin</div>
                 <div class="nav-item" onclick="showTab('logs')">Logs</div>
-                <div id="compliance-nav" class="nav-item hidden" onclick="showTab('compliance')">Compliance</div>
-                <div id="ai-nav" class="nav-item hidden" onclick="showTab('ai')">AI Assistant</div>
             </nav>
             <div class="sidebar-footer">
                 <button class="btn btn-small" onclick="toggleTheme()" style="width: 100%; margin-bottom: 0.5rem;" id="theme-toggle-btn">
@@ -1669,37 +1669,6 @@
                     <p>Configure local or cloud AI providers</p>
                 </div>
                 <div class="content-body">
-                    <!-- Ollama Settings -->
-                    <div class="card">
-                        <div class="card-header">
-                            <div class="card-title">Ollama (Local AI - Recommended)</div>
-                        </div>
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; gap: 0.5rem;">
-                                <input type="checkbox" id="ai-ollama-enabled" style="width: auto;" checked>
-                                Enable Ollama (Free, runs locally)
-                            </label>
-                            <small>Ollama is installed in the container - just enable/disable as needed</small>
-                        </div>
-                        <div class="grid-2">
-                            <div class="form-group">
-                                <label>Ollama Endpoint</label>
-                                <input type="text" id="ai-ollama-endpoint" value="http://localhost:11434" placeholder="http://localhost:11434">
-                            </div>
-                            <div class="form-group">
-                                <label>Model</label>
-                                <select id="ai-ollama-model">
-                                    <option value="llama2">Llama 2 (7B)</option>
-                                    <option value="llama2:13b">Llama 2 (13B)</option>
-                                    <option value="codellama">Code Llama</option>
-                                    <option value="mistral">Mistral</option>
-                                    <option value="neural-chat">Neural Chat</option>
-                                </select>
-                                <small>Download: <code>ollama pull llama2</code></small>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Claude Settings -->
                     <div class="card">
                         <div class="card-header">
@@ -4378,9 +4347,6 @@
                 const settings = await res.json();
                 
                 // Update UI
-                document.getElementById('ai-ollama-enabled').checked = settings.ollama_enabled || false;
-                document.getElementById('ai-ollama-endpoint').value = settings.ollama_endpoint || 'http://localhost:11434';
-                document.getElementById('ai-ollama-model').value = settings.ollama_model || 'llama2';
                 document.getElementById('ai-claude-enabled').checked = settings.claude_enabled || false;
                 if (settings.claude_api_key && settings.claude_api_key !== '***HIDDEN***') {
                     document.getElementById('ai-claude-key').value = settings.claude_api_key;
@@ -4393,9 +4359,7 @@
                 
                 // Update provider badge
                 let provider = 'Not configured';
-                if (settings.ollama_enabled) {
-                    provider = 'Ollama';
-                } else if (settings.claude_enabled) {
+                if (settings.claude_enabled) {
                     provider = 'Claude';
                 } else if (settings.chatgpt_enabled) {
                     provider = 'ChatGPT';
@@ -4409,9 +4373,6 @@
         
         async function saveAISettings() {
             const settings = {
-                ollama_enabled: document.getElementById('ai-ollama-enabled').checked,
-                ollama_endpoint: document.getElementById('ai-ollama-endpoint').value,
-                ollama_model: document.getElementById('ai-ollama-model').value,
                 claude_enabled: document.getElementById('ai-claude-enabled').checked,
                 claude_api_key: document.getElementById('ai-claude-key').value || null,
                 chatgpt_enabled: document.getElementById('ai-chatgpt-enabled').checked,
@@ -4505,7 +4466,7 @@
             if (role === 'user') {
                 header = '<strong>You:</strong><br>';
             } else if (role === 'assistant') {
-                const providerName = provider === 'ollama' ? 'Ollama' : provider === 'claude' ? 'Claude' : provider === 'chatgpt' ? 'ChatGPT' : 'AI';
+                const providerName = provider === 'claude' ? 'Claude' : provider === 'chatgpt' ? 'ChatGPT' : 'AI';
                 header = `<strong>${providerName}:</strong>`;
                 if (responseTime) {
                     header += ` <span style="font-size: 11px; opacity: 0.7;">(${responseTime}ms)</span>`;
@@ -4534,7 +4495,7 @@
                 }
                 
                 list.innerHTML = data.conversations.map(conv => {
-                    const providerName = conv.provider === 'ollama' ? 'Ollama' : conv.provider === 'claude' ? 'Claude' : conv.provider === 'chatgpt' ? 'ChatGPT' : 'AI';
+                    const providerName = conv.provider === 'claude' ? 'Claude' : conv.provider === 'chatgpt' ? 'ChatGPT' : 'AI';
                     return `
                     <div class="remote-item" style="margin-bottom: 1rem;">
                         <div class="remote-info">
