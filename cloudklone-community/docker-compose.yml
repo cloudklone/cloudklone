@@ -27,18 +27,15 @@ services:
       DATABASE_URL: postgresql://cloudklone_user:changeme123@postgres:5432/cloudklone
       HTTP_PORT: 3001
       HTTPS_PORT: 3443
-      OLLAMA_HOST: 0.0.0.0:11434
       EDITION: community
       # LICENSE_KEY: your-enterprise-license-key-here
     volumes:
       - rclone_config:/root/.config/rclone
-      - ollama_models:/root/.ollama
       - ssl_certs:/app/certs
       - ssh_keys:/root/.ssh
     ports:
       - "0.0.0.0:80:3001"
       - "0.0.0.0:443:3443"
-      - "127.0.0.1:11434:11434"
     networks:
       - cloudklone-network
     depends_on:
@@ -49,7 +46,6 @@ services:
 volumes:
   postgres_data:
   rclone_config:
-  ollama_models:
   ssl_certs:
   ssh_keys:
 

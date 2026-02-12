@@ -2454,9 +2454,9 @@ app.get('/api/enterprise/ai/settings', authenticateToken, async (req, res) => {
     
     const result = await pool.query('SELECT * FROM ai_settings LIMIT 1');
     const settings = result.rows[0] || {
-      ollama_enabled: false,
-      ollama_endpoint: 'http://localhost:11434',
-      ollama_model: 'llama2'
+      claude_enabled: false,
+      chatgpt_enabled: false,
+      ai_context_depth: 'standard'
     };
     
     // Don't send API keys to frontend
@@ -2478,9 +2478,6 @@ app.put('/api/enterprise/ai/settings', authenticateToken, async (req, res) => {
     }
     
     const {
-      ollama_enabled,
-      ollama_endpoint,
-      ollama_model,
       claude_enabled,
       claude_api_key,
       chatgpt_enabled,
@@ -2495,18 +2492,6 @@ app.put('/api/enterprise/ai/settings', authenticateToken, async (req, res) => {
     const updateValues = [];
     let paramCount = 1;
     
-    if (ollama_enabled !== undefined) {
-      updateFields.push(`ollama_enabled = $${paramCount++}`);
-      updateValues.push(ollama_enabled);
-    }
-    if (ollama_endpoint) {
-      updateFields.push(`ollama_endpoint = $${paramCount++}`);
-      updateValues.push(ollama_endpoint);
-    }
-    if (ollama_model) {
-      updateFields.push(`ollama_model = $${paramCount++}`);
-      updateValues.push(ollama_model);
-    }
     if (claude_enabled !== undefined) {
       updateFields.push(`claude_enabled = $${paramCount++}`);
       updateValues.push(claude_enabled);
@@ -2532,14 +2517,10 @@ app.put('/api/enterprise/ai/settings', authenticateToken, async (req, res) => {
       // Insert new
       await pool.query(`
         INSERT INTO ai_settings (
-          ollama_enabled, ollama_endpoint, ollama_model, 
           claude_enabled, claude_api_key, chatgpt_enabled, chatgpt_api_key,
           ai_context_depth, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+        ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
       `, [
-        ollama_enabled || false,
-        ollama_endpoint || 'http://localhost:11434',
-        ollama_model || 'llama2',
         claude_enabled || false,
         claude_api_key || null,
         chatgpt_enabled || false,
@@ -2653,53 +2634,6 @@ async function gatherAIContext(userId, depth = 'standard') {
   return context;
 }
 
-// Query Ollama AI
-async function queryOllama(endpoint, model, prompt, context) {
-  const startTime = Date.now();
-  
-  try {
-    const systemPrompt = `You are CloudKlone AI Assistant, helping users with their cloud data transfer platform.
-
-Current User Context:
-${JSON.stringify(context, null, 2)}
-
-Guidelines:
-- Be helpful and concise
-- Reference the user's specific setup when relevant
-- Suggest optimizations and best practices
-- If the user asks about errors, check recent_errors in context
-- Help with configuration, troubleshooting, and workflows`;
-
-    const response = await fetch(`${endpoint}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: model,
-        prompt: `${systemPrompt}\n\nUser Question: ${prompt}\n\nAssistant:`,
-        stream: false
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Ollama API error: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    const responseTime = Date.now() - startTime;
-    
-    return {
-      response: data.response,
-      model: model,
-      tokens: data.eval_count || 0,
-      response_time_ms: responseTime
-    };
-    
-  } catch (error) {
-    console.error('Ollama query error:', error);
-    throw error;
-  }
-}
-
 // Query Claude API
 async function queryClaude(apiKey, prompt, context) {
   const startTime = Date.now();
@@ -2790,7 +2724,7 @@ async function queryChatGPT(apiKey, prompt, context) {
 // AI Assistant query endpoint
 app.post('/api/enterprise/ai/query', authenticateToken, async (req, res) => {
   try {
-    const { query, provider } = req.body; // provider: 'ollama', 'claude', 'chatgpt', or 'auto'
+    const { query, provider } = req.body; // provider: 'claude', 'chatgpt', or 'auto'
     
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
@@ -2807,15 +2741,13 @@ app.post('/api/enterprise/ai/query', authenticateToken, async (req, res) => {
     // Determine which provider to use
     let useProvider = provider || 'auto';
     if (useProvider === 'auto') {
-      // Priority: Ollama (free/local) > Claude > ChatGPT
-      if (settings.ollama_enabled) {
-        useProvider = 'ollama';
-      } else if (settings.claude_enabled && settings.claude_api_key) {
+      // Priority: Claude > ChatGPT
+      if (settings.claude_enabled && settings.claude_api_key) {
         useProvider = 'claude';
       } else if (settings.chatgpt_enabled && settings.chatgpt_api_key) {
         useProvider = 'chatgpt';
       } else {
-        return res.status(400).json({ error: 'No AI provider enabled. Please enable at least one in settings.' });
+        return res.status(400).json({ error: 'No AI provider enabled. Please enable Claude or ChatGPT in settings.' });
       }
     }
     
@@ -2825,12 +2757,7 @@ app.post('/api/enterprise/ai/query', authenticateToken, async (req, res) => {
     // Query AI
     let result;
     try {
-      if (useProvider === 'ollama') {
-        if (!settings.ollama_enabled) {
-          return res.status(400).json({ error: 'Ollama is not enabled' });
-        }
-        result = await queryOllama(settings.ollama_endpoint, settings.ollama_model, query, context);
-      } else if (useProvider === 'claude') {
+      if (useProvider === 'claude') {
         if (!settings.claude_enabled || !settings.claude_api_key) {
           return res.status(400).json({ error: 'Claude is not configured' });
         }
@@ -2841,16 +2768,14 @@ app.post('/api/enterprise/ai/query', authenticateToken, async (req, res) => {
         }
         result = await queryChatGPT(settings.chatgpt_api_key, query, context);
       } else {
-        return res.status(400).json({ error: 'Invalid provider' });
+        return res.status(400).json({ error: 'Invalid provider. Use "claude" or "chatgpt".' });
       }
     } catch (aiError) {
       console.error('AI query error:', aiError);
       return res.status(500).json({ 
         error: 'AI query failed', 
         details: aiError.message,
-        suggestion: useProvider === 'ollama' ? 
-          'Make sure Ollama is running: ollama serve' : 
-          'Check your API key and network connection'
+        suggestion: 'Check your API key and network connection'
       });
     }
     
@@ -5240,9 +5165,6 @@ async function initDatabase() {
       -- Enterprise Feature v8: AI Assistant settings
       CREATE TABLE IF NOT EXISTS ai_settings (
         id SERIAL PRIMARY KEY,
-        ollama_enabled BOOLEAN DEFAULT false,
-        ollama_endpoint VARCHAR(255) DEFAULT 'http://localhost:11434',
-        ollama_model VARCHAR(100) DEFAULT 'llama2',
         claude_enabled BOOLEAN DEFAULT false,
         claude_api_key TEXT,
         chatgpt_enabled BOOLEAN DEFAULT false,
@@ -5252,7 +5174,7 @@ async function initDatabase() {
       );
       
       -- Insert default AI settings if not exists
-      INSERT INTO ai_settings (ollama_enabled)
+      INSERT INTO ai_settings (claude_enabled)
       SELECT false
       WHERE NOT EXISTS (SELECT 1 FROM ai_settings);
       
@@ -5260,7 +5182,7 @@ async function initDatabase() {
       CREATE TABLE IF NOT EXISTS ai_conversations (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        provider VARCHAR(50) NOT NULL, -- 'ollama', 'claude', 'chatgpt'
+        provider VARCHAR(50) NOT NULL, -- 'claude', 'chatgpt'
         query TEXT NOT NULL,
         response TEXT,
         context_used JSONB,
